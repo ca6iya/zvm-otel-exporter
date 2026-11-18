@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Pure mapping from Feilong payloads to samples."""
 
 from __future__ import annotations

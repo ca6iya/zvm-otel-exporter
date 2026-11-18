@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Feilong client behavior against the mock server."""
 
 from __future__ import annotations

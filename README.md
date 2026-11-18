@@ -1,10 +1,45 @@
 # z/VM OTel exporter
 
+[![CI](https://github.com/ca6iya/zvm-otel-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/ca6iya/zvm-otel-exporter/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+<!--
+OpenSSF Best Practices badge placeholder.
+When the project is enrolled at https://www.bestpractices.dev/, replace this
+comment with the badge image that site provides. Do not add a passing badge
+before enrollment.
+-->
+
 Prometheus and OpenTelemetry exporter for [z/VM](https://www.ibm.com/products/zvm) host and guest metrics. It reads the [Feilong](https://github.com/openmainframeproject/feilong) REST API (the maintained z/VM SDK and cloud connector) and publishes one scrape both as a Prometheus `/metrics` endpoint and as OTLP metrics.
 
 This is a successor to [zvm_exporter](https://github.com/zvmexporter/zvm_exporter) (2016–2017). That project scraped xCAT, which is no longer maintained, and exposed CPU, memory, disk, paging, and spool metrics on port **9110**. The [Open Mainframe Project 2020 mentorship](https://mentorship.linuxfoundation.org/programs/open-mainframe-project-2020-mentorship-enhance-zvm-prometheus-exporter) proposed rebuilding it on Feilong. This repository is that rebuild, with OTLP added so the same series can go to an OpenTelemetry Collector or directly to Dynatrace.
 
 It has been tested against a fixture Feilong server. It has not yet been run against a live z/VM system. Treat the unit conversions in the metrics table as a contract to confirm on real hardware.
+
+## Release
+
+There is no tagged release yet. The current tree is version 0.1.0, not yet published. The change history is [CHANGELOG.md](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. How a maintainer cuts a release is in [RELEASE.md](RELEASE.md).
+
+## Usage
+
+Install and run the exporter from the [Quick start](#quick-start) below. Docker, systemd, configuration, and the metrics tables stay in this README.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Project roles and voting are in [GOVERNANCE.md](GOVERNANCE.md). Report security issues privately as described in [SECURITY.md](SECURITY.md).
+
+## Support and discussion
+
+* Bug reports and questions: [GitHub Issues](https://github.com/ca6iya/zvm-otel-exporter/issues).
+* Design discussion: [GitHub Discussions](https://github.com/ca6iya/zvm-otel-exporter/discussions).
+
+### Meetings
+
+There are no regular meetings yet. If a meeting series starts, a maintainer will announce the time, the joining instructions, and the agenda link in GitHub Discussions and record them in this section.
+
+## Acknowledgment
+
+Initial contributor: [ca6iya](https://github.com/ca6iya).
 
 ## Architecture
 

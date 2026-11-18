@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Collector against the mock Feilong server."""
 
 from __future__ import annotations

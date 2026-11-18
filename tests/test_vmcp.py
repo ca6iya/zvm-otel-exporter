@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """vmcp parsing, caching, and the hard command budget."""
 
 from __future__ import annotations
