@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-18
+
 ### Added
 
 - Feilong REST collector for z/VM host, disk-pool, guest, virtual-switch, and SSI metrics.
@@ -15,4 +17,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixture Feilong server and recorded `vmcp` output so tests run without a mainframe.
 - Project governance files for a future Open Mainframe Project proposal.
 
-[Unreleased]: https://github.com/ca6iya/zvm-otel-exporter/compare/HEAD
+[Unreleased]: https://github.com/ca6iya/zvm-otel-exporter/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ca6iya/zvm-otel-exporter/releases/tag/v0.1.0
