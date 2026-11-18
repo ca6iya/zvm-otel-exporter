@@ -1,0 +1,27 @@
+{
+  "schemaId": "builtin:anomaly-detection.metric-events",
+  "scope": "environment",
+  "value": {
+    "enabled": true,
+    "summary": "z/VM paging space above 80 percent",
+    "queryDefinition": {
+      "type": "METRIC_SELECTOR",
+      "metricSelector": "zvm.paging.utilization:avg"
+    },
+    "modelProperties": {
+      "type": "STATIC_THRESHOLD",
+      "threshold": 0.8,
+      "alertCondition": "ABOVE",
+      "violatingSamples": 3,
+      "samples": 5,
+      "dealertingSamples": 5
+    },
+    "eventTemplate": {
+      "title": "z/VM paging space above 80 percent",
+      "description": "zvm.paging.utilization stayed above 0.8. Warning only.",
+      "eventType": "RESOURCE_CONTENTION",
+      "davisMerge": true,
+      "severity": "warning"
+    }
+  }
+}

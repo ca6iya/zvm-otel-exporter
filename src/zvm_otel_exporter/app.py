@@ -33,7 +33,12 @@ class ExporterApp:
     def start(self) -> None:
         if self.config.otlp.enabled:
             interval_ms = max(1000, int(self.config.scrape_interval * 1000))
-            self._otel = start_otel(self.config.otlp, self.store, interval_ms)
+            self._otel = start_otel(
+                self.config.otlp,
+                self.store,
+                interval_ms,
+                self.collector.identity.resource_attributes(),
+            )
             log.info(
                 "OTLP export enabled protocol=%s",
                 self.config.otlp.protocol,
@@ -57,7 +62,12 @@ class ExporterApp:
         """Collect once, flush OTLP, and write Prometheus text to stdout."""
 
         if self.config.otlp.enabled:
-            self._otel = start_otel(self.config.otlp, self.store, export_interval_ms=3_600_000)
+            self._otel = start_otel(
+                self.config.otlp,
+                self.store,
+                export_interval_ms=3_600_000,
+                resource_attributes=self.collector.identity.resource_attributes(),
+            )
         snapshot = self._publish()
         if self._otel is not None:
             self._otel.force_flush()

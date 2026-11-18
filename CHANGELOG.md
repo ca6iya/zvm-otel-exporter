@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `zvm.system.info` labels for the z/VM system, LPAR, and CPC, from `/proc/sysinfo`, data already collected from Feilong, and config overrides. OTLP resource attributes carry the same identity at process start.
+- Dashboard pack under `dashboards/` for Grafana and Dynatrace, with alert rules and `docs/dashboards.md`.
+
 ## [0.1.0] - 2026-11-18
 
 ### Added

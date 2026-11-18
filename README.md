@@ -16,6 +16,16 @@ This is a successor to [zvm_exporter](https://github.com/zvmexporter/zvm_exporte
 
 It has been tested against a fixture Feilong server. It has not yet been run against a live z/VM system. Treat the unit conversions in the metrics table as a contract to confirm on real hardware.
 
+## System identity
+
+`zvm.system.info` is a gauge that is always 1. Its labels name the z/VM system and the hardware: `zvm_host_name`, `zvm_system_name`, `lpar`, `lpar_number`, CPC type, model, sequence, and plant, plus `zvm_site`, `deployment_environment`, `zvm_ssi_name`, and `host_arch`.
+
+The exporter fills those from `/proc/sysinfo` on the Linux on Z guest (LPAR name and number, machine type, sequence code, plant, and `VM00 Name`) and from Feilong host and SSI fields it already collected. `/proc/sysinfo` is read at startup and then at most every 10 minutes (`identity.interval`, minimum 600 seconds). Set any `identity.*` value, or the matching `ZVM_EXPORTER_IDENTITY_*` variable, to override a label. Empty overrides are ignored.
+
+OpenTelemetry resource attributes are taken from that same identity at process start: `host.name`, `host.arch`, `host.id` (CPC sequence), `deployment.environment.name`, and `zvm.*` for the rest. `host.type` is not set, because the semantic convention uses it for a different meaning. Resource attributes do not change for the life of the process. The Prometheus info metric and the OTLP `zvm.system.info` series pick up a refreshed `/proc/sysinfo` read and any Feilong fields from the latest scrape.
+
+Guest, NIC, and disk series are not stamped with the LPAR label. Join them to `zvm_system_info` on `zvm_host_name` when a dashboard needs the LPAR name. That keeps cardinality flat.
+
 ## Release
 
 The latest release is [0.1.0](https://github.com/ca6iya/zvm-otel-exporter/releases/tag/v0.1.0) (2026-11-18). The package version in `pyproject.toml` and `__version__` is 0.1.0. The change history is [CHANGELOG.md](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. How a maintainer cuts a release is in [RELEASE.md](RELEASE.md).

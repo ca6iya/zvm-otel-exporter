@@ -1,0 +1,44 @@
+{
+  "displayName": "z/VM and Linux diagnosis",
+  "description": "Put z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work.",
+  "variables": [
+    {
+      "name": "system",
+      "key": "zvm.host.name"
+    },
+    {
+      "name": "lpar",
+      "key": "zvm.lpar.name"
+    },
+    {
+      "name": "guest",
+      "key": "zvm.guest.id"
+    }
+  ],
+  "tiles": [
+    {
+      "title": "z/VM CPU",
+      "description": "zvm.system.cpu.utilization from the exporter.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.system.cpu.utilization), by:{zvm.host.name}"
+    },
+    {
+      "title": "Guest CPU time",
+      "description": "Rate is not a DQL function here. The tile shows the cumulative counter. Use the metric browser rate transformation in the dashboard UI if you need cores.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.guest.cpu.time), by:{zvm.guest.id, zvm.host.name}"
+    },
+    {
+      "title": "OneAgent CPU steal",
+      "description": "builtin:host.cpu.steal from OneAgent, percent. Empty until the Linux guest is monitored by OneAgent.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(builtin:host.cpu.steal), by:{dt.entity.host}"
+    },
+    {
+      "title": "OneAgent CPU usage",
+      "description": "builtin:host.cpu.usage. Compare with steal. Usage without steal is work inside Linux.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(builtin:host.cpu.usage), by:{dt.entity.host}"
+    }
+  ]
+}

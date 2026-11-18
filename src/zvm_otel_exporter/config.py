@@ -71,6 +71,26 @@ class VmcpConfig:
 
 
 @dataclass
+class IdentityConfig:
+    """Optional labels. Empty strings mean 'use what was discovered'."""
+
+    sysinfo_path: str = "/proc/sysinfo"
+    interval: float = 600.0
+    host_name: str = ""
+    system_name: str = ""
+    lpar_name: str = ""
+    lpar_number: str = ""
+    cpc_type: str = ""
+    cpc_model: str = ""
+    cpc_sequence: str = ""
+    cpc_plant: str = ""
+    site: str = ""
+    environment: str = ""
+    ssi_name: str = ""
+    arch: str = ""
+
+
+@dataclass
 class ServerConfig:
     listen: str = "0.0.0.0"
     port: int = 9110
@@ -110,6 +130,7 @@ class Config:
     otlp: OtlpConfig = field(default_factory=OtlpConfig)
     collectors: CollectorToggles = field(default_factory=CollectorToggles)
     vmcp: VmcpConfig = field(default_factory=VmcpConfig)
+    identity: IdentityConfig = field(default_factory=IdentityConfig)
     log_level: str = "INFO"
 
     def secrets(self) -> list[str]:
@@ -186,6 +207,8 @@ def validate(config: Config) -> None:
         errors.append("scrape interval must be at least 1 second")
     if config.vmcp.interval < 30:
         errors.append("vmcp interval must be at least 30 seconds")
+    if config.identity.interval < 600:
+        errors.append("identity interval must be at least 600 seconds")
     if not 0 < config.vmcp.timeout <= 10:
         errors.append("vmcp timeout must be greater than 0 and at most 10 seconds")
     if _unsafe_command(config.vmcp.command):
@@ -240,6 +263,7 @@ def _apply_file(config: Config, path: Path) -> Config:
             "otlp",
             "collectors",
             "vmcp",
+            "identity",
             "log_level",
         },
         "config",
@@ -321,6 +345,7 @@ def _apply_file(config: Config, path: Path) -> Config:
     if "scrape_interval" in loaded and loaded["scrape_interval"] is not None:
         scrape = float(loaded["scrape_interval"])
     vmcp = _vmcp_from_mapping(loaded.get("vmcp"), config.vmcp)
+    identity = _identity_from_mapping(loaded.get("identity"), config.identity)
     log_level = str(loaded.get("log_level", config.log_level))
     return Config(
         feilong=FeilongConfig(**_coerce_feilong(feilong)),
@@ -337,6 +362,7 @@ def _apply_file(config: Config, path: Path) -> Config:
         ),
         collectors=CollectorToggles(**{key: bool(collectors[key]) for key in _COLLECTORS}),
         vmcp=vmcp,
+        identity=identity,
         log_level=log_level.upper(),
     )
 
@@ -357,6 +383,40 @@ def _vmcp_from_mapping(raw: object, current: VmcpConfig) -> VmcpConfig:
         timeout=float(values["timeout"]),
         host_name=str(values["host_name"] or ""),
     )
+
+
+_IDENTITY_KEYS = (
+    "sysinfo_path",
+    "interval",
+    "host_name",
+    "system_name",
+    "lpar_name",
+    "lpar_number",
+    "cpc_type",
+    "cpc_model",
+    "cpc_sequence",
+    "cpc_plant",
+    "site",
+    "environment",
+    "ssi_name",
+    "arch",
+)
+
+
+def _identity_from_mapping(raw: object, current: IdentityConfig) -> IdentityConfig:
+    if raw is None:
+        return current
+    parsed = _mapping(raw, "identity")
+    _reject_unknown(parsed, set(_IDENTITY_KEYS), "identity")
+    values = dict(current.__dict__)
+    for key in _IDENTITY_KEYS:
+        if key in parsed and parsed[key] is not None:
+            values[key] = parsed[key]
+    values["interval"] = float(values["interval"])
+    for key in _IDENTITY_KEYS:
+        if key != "interval":
+            values[key] = str(values[key] or "")
+    return IdentityConfig(**values)
 
 
 def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
@@ -468,6 +528,31 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
     log_level = config.log_level
     if "ZVM_EXPORTER_LOG_LEVEL" in env:
         log_level = env["ZVM_EXPORTER_LOG_LEVEL"].upper()
+    identity = config.identity
+    identity_updates: dict[str, Any] = {}
+    env_identity = {
+        "ZVM_EXPORTER_IDENTITY_SYSINFO": "sysinfo_path",
+        "ZVM_EXPORTER_IDENTITY_INTERVAL": "interval",
+        "ZVM_EXPORTER_IDENTITY_HOST_NAME": "host_name",
+        "ZVM_EXPORTER_IDENTITY_SYSTEM_NAME": "system_name",
+        "ZVM_EXPORTER_IDENTITY_LPAR_NAME": "lpar_name",
+        "ZVM_EXPORTER_IDENTITY_LPAR_NUMBER": "lpar_number",
+        "ZVM_EXPORTER_IDENTITY_CPC_TYPE": "cpc_type",
+        "ZVM_EXPORTER_IDENTITY_CPC_MODEL": "cpc_model",
+        "ZVM_EXPORTER_IDENTITY_CPC_SEQUENCE": "cpc_sequence",
+        "ZVM_EXPORTER_IDENTITY_CPC_PLANT": "cpc_plant",
+        "ZVM_EXPORTER_IDENTITY_SITE": "site",
+        "ZVM_EXPORTER_IDENTITY_ENVIRONMENT": "environment",
+        "ZVM_EXPORTER_IDENTITY_SSI_NAME": "ssi_name",
+        "ZVM_EXPORTER_IDENTITY_ARCH": "arch",
+    }
+    for env_name, field_name in env_identity.items():
+        if env_name in env:
+            identity_updates[field_name] = (
+                float(env[env_name]) if field_name == "interval" else env[env_name]
+            )
+    if identity_updates:
+        identity = replace(identity, **identity_updates)
     return Config(
         feilong=feilong,
         server=server,
@@ -476,6 +561,7 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
         otlp=otlp,
         collectors=collectors,
         vmcp=vmcp,
+        identity=identity,
         log_level=log_level,
     )
 
@@ -564,6 +650,7 @@ def _apply_args(config: Config, args: Any) -> Config:
         otlp=otlp,
         collectors=config.collectors,
         vmcp=vmcp,
+        identity=config.identity,
         log_level=log_level,
     )
 

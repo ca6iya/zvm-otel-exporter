@@ -1,0 +1,44 @@
+{
+  "displayName": "z/VM fleet",
+  "description": "Fleet status from OTLP metrics. Filter with the system and lpar variables.",
+  "variables": [
+    {
+      "name": "system",
+      "key": "zvm.host.name"
+    },
+    {
+      "name": "lpar",
+      "key": "zvm.lpar.name"
+    },
+    {
+      "name": "guest",
+      "key": "zvm.guest.id"
+    }
+  ],
+  "tiles": [
+    {
+      "title": "CPU by system",
+      "description": "Average INDICATE LOAD utilization. High CPU plus high steal means the LPAR is busy.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.system.cpu.utilization), by:{zvm.host.name, zvm.lpar.name}"
+    },
+    {
+      "title": "Exporter up",
+      "description": "1 when the last Feilong host scrape worked. 0 means do not trust the other tiles.",
+      "visualization": "singleValue",
+      "dql": "timeseries avg(zvm.exporter.up), by:{zvm.host.name}"
+    },
+    {
+      "title": "Paging utilization",
+      "description": "Paging pages in use over pages allocated. Trend, not an outage signal.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.paging.utilization), by:{zvm.host.name}"
+    },
+    {
+      "title": "Spool utilization",
+      "description": "Spool pages in use over pages allocated.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.spool.utilization), by:{zvm.host.name}"
+    }
+  ]
+}

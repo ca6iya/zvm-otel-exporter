@@ -1,0 +1,27 @@
+{
+  "schemaId": "builtin:anomaly-detection.metric-events",
+  "scope": "environment",
+  "value": {
+    "enabled": true,
+    "summary": "z/VM CPU above 85 percent",
+    "queryDefinition": {
+      "type": "METRIC_SELECTOR",
+      "metricSelector": "zvm.system.cpu.utilization:avg"
+    },
+    "modelProperties": {
+      "type": "STATIC_THRESHOLD",
+      "threshold": 0.85,
+      "alertCondition": "ABOVE",
+      "violatingSamples": 3,
+      "samples": 5,
+      "dealertingSamples": 5
+    },
+    "eventTemplate": {
+      "title": "z/VM CPU above 85 percent",
+      "description": "zvm.system.cpu.utilization stayed above 0.85. Compare with guest CPU and host steal.",
+      "eventType": "RESOURCE_CONTENTION",
+      "davisMerge": true,
+      "severity": "warning"
+    }
+  }
+}

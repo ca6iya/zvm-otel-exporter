@@ -60,4 +60,23 @@ collectors:
   smapi: true
   version: true
 
+# Labels for the z/VM system and the LPAR. Empty values are filled from
+# /proc/sysinfo (at most every 10 minutes) and from Feilong host data that
+# the scrape already collected. A non-empty value always wins.
+identity:
+  sysinfo_path: /proc/sysinfo
+  interval: 600
+  host_name: ""
+  system_name: ""
+  lpar_name: ""
+  lpar_number: ""
+  cpc_type: ""
+  cpc_model: ""
+  cpc_sequence: ""
+  cpc_plant: ""
+  site: ""
+  environment: ""
+  ssi_name: ""
+  arch: ""
+
 log_level: INFO

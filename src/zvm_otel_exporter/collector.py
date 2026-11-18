@@ -26,6 +26,11 @@ from zvm_otel_exporter.feilong import (
     FeilongNotFound,
     FeilongUnavailable,
 )
+from zvm_otel_exporter.identity import (
+    IdentitySource,
+    discovered_from_samples,
+    identity_sample,
+)
 from zvm_otel_exporter.models import Sample, Snapshot
 from zvm_otel_exporter.translate import (
     diskpool_samples,
@@ -69,6 +74,7 @@ class Collector:
             self.vmcp = VmcpSource(config.vmcp)
         else:
             self.vmcp = None
+        self.identity = IdentitySource(config.identity)
 
     def collect(self) -> Snapshot:
         started = time.perf_counter()
@@ -91,6 +97,9 @@ class Collector:
             reading = self.vmcp.collect(host)
             fresh.extend(reading.samples)
             vmcp_ok = reading.ok
+        info = identity_sample(self.identity.observe(discovered_from_samples(fresh)))
+        if info is not None:
+            fresh.append(info)
         if not self.config.feilong.enabled:
             up = vmcp_ok
         elif self.config.collectors.host:

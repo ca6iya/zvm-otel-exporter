@@ -1,0 +1,27 @@
+{
+  "schemaId": "builtin:anomaly-detection.metric-events",
+  "scope": "environment",
+  "value": {
+    "enabled": true,
+    "summary": "Linux CPU steal above 10 percent",
+    "queryDefinition": {
+      "type": "METRIC_SELECTOR",
+      "metricSelector": "builtin:host.cpu.steal:avg"
+    },
+    "modelProperties": {
+      "type": "STATIC_THRESHOLD",
+      "threshold": 10,
+      "alertCondition": "ABOVE",
+      "violatingSamples": 3,
+      "samples": 5,
+      "dealertingSamples": 5
+    },
+    "eventTemplate": {
+      "title": "Linux CPU steal above 10 percent",
+      "description": "OneAgent host CPU steal stayed above 10 percent. Requires the host to be monitored by OneAgent.",
+      "eventType": "RESOURCE_CONTENTION",
+      "davisMerge": true,
+      "severity": "warning"
+    }
+  }
+}

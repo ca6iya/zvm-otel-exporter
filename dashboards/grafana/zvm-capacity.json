@@ -1,0 +1,498 @@
+{
+  "uid": "zvm-capacity",
+  "title": "z/VM capacity",
+  "description": "Overcommit, idle guests, CPU headroom, and a 7-day linear sketch of paging and spool. Not a replacement for a capacity study.",
+  "schemaVersion": 39,
+  "tags": [
+    "zvm",
+    "mainframe"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "annotations": {
+    "list": [
+      {
+        "name": "Capacity threshold",
+        "enable": false,
+        "hide": false,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "target": {
+          "refId": "A",
+          "limit": 100
+        }
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1,
+        "current": {}
+      },
+      {
+        "name": "system",
+        "label": "z/VM system",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_system_info, zvm_host_name)",
+        "query": {
+          "query": "label_values(zvm_system_info, zvm_host_name)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "lpar",
+        "label": "LPAR",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_system_info, lpar)",
+        "query": {
+          "query": "label_values(zvm_system_info, lpar)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "guest",
+        "label": "Guest",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}, zvm_guest_id)",
+        "query": {
+          "query": "label_values(zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}, zvm_guest_id)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "linux_instance",
+        "label": "Linux on Z",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(node_uname_info, instance)",
+        "query": {
+          "query": "label_values(node_uname_info, instance)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {},
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Memory overcommit",
+      "description": "Sum of guest-reported total memory (Feilong total_memory, treated as kilobytes) divided by LPAR memory. Above 1 means guests are defined with more memory than the LPAR has. This is not Linux usage. max_mem is a ceiling and is not used here because it overstates what is defined.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(zvm_guest_memory_total_bytes{zvm_host_name=\"$system\"}) / zvm_host_memory_limit_bytes{zvm_host_name=\"$system\"}",
+          "refId": "A",
+          "legendFormat": "overcommit"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "CPU headroom",
+      "description": "One minus INDICATE LOAD utilization. Headroom near zero means little room for a new guest or a CPU spike. It is not a forecast.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "1 - zvm_system_cpu_utilization{zvm_host_name=\"$system\"}",
+          "refId": "A",
+          "legendFormat": "headroom"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Guest memory used ratio",
+      "description": "used_mem divided by max_mem. A guest with a large limit and a ratio near zero is a right-sizing candidate. max_mem is the Feilong ceiling, so confirm the directory definition before shrinking a guest.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "zvm_guest_memory_usage_bytes{zvm_host_name=\"$system\"} / zvm_guest_memory_limit_bytes{zvm_host_name=\"$system\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_guest_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Guest CPU used vs defined",
+      "description": "CPU-seconds per second over 1 hour, divided by defined virtual CPUs. A ratio near zero for many hours is an idle or oversized CPU definition.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=\"$system\"}[1h]) / zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_guest_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Paging in 7 days",
+      "description": "predict_linear of paging utilization over the last 6 hours, projected 7 days ahead. A value above 1 means the straight line crosses full. Negative slope means usage is falling. This is a sketch, not a capacity plan.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "predict_linear(zvm_paging_utilization{zvm_host_name=\"$system\"}[6h], 86400 * 7)",
+          "refId": "A",
+          "legendFormat": "paging"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Spool in 7 days",
+      "description": "Same linear projection for spool utilization. Use it to schedule spool cleanup. Do not treat a single projection as an incident.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "predict_linear(zvm_spool_utilization{zvm_host_name=\"$system\"}[6h], 86400 * 7)",
+          "refId": "A",
+          "legendFormat": "spool"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Days until paging reaches 90 percent",
+      "description": "Remaining distance to 0.9 divided by the 6-hour derivative, in days. Ignore negative or huge values: the slope is flat or downward. Alerting uses a 7-day projection instead of this raw number.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "(0.9 - zvm_paging_utilization{zvm_host_name=\"$system\"}) / deriv(zvm_paging_utilization{zvm_host_name=\"$system\"}[6h]) / 86400",
+          "refId": "A",
+          "legendFormat": "days"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "d",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+Manufacturer:         IBM
+Type:                 3906
+Model:                702              N96
+Sequence Code:        00000000000C4B8E
+Plant:                02
+LPAR Number:          15
+LPAR Name:            ZVMLPAR1
+VM00 Name:            ZVM1
+VM00 Control Program: z/VM    7.3.0

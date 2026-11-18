@@ -1,0 +1,44 @@
+{
+  "displayName": "z/VM capacity",
+  "description": "Memory overcommit is guest total over host limit. The forecast tile uses DQL forecast on paging utilization.",
+  "variables": [
+    {
+      "name": "system",
+      "key": "zvm.host.name"
+    },
+    {
+      "name": "lpar",
+      "key": "zvm.lpar.name"
+    },
+    {
+      "name": "guest",
+      "key": "zvm.guest.id"
+    }
+  ],
+  "tiles": [
+    {
+      "title": "Host memory",
+      "description": "LPAR memory limit and usage from Feilong, in bytes.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.host.memory.usage), avg(zvm.host.memory.limit), by:{zvm.host.name}"
+    },
+    {
+      "title": "Guest memory total",
+      "description": "Guest-reported total memory. Sum in the UI and divide by host limit for overcommit.",
+      "visualization": "lineChart",
+      "dql": "timeseries sum(zvm.guest.memory.total), by:{zvm.host.name}"
+    },
+    {
+      "title": "Paging forecast",
+      "description": "DQL forecast of paging utilization. A rising forecast through 0.9 inside a week is a warning, not an incident.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.paging.utilization), by:{zvm.host.name} | forecast"
+    },
+    {
+      "title": "Spool forecast",
+      "description": "DQL forecast of spool utilization. Warning only.",
+      "visualization": "lineChart",
+      "dql": "timeseries avg(zvm.spool.utilization), by:{zvm.host.name} | forecast"
+    }
+  ]
+}

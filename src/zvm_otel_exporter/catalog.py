@@ -70,6 +70,26 @@ CATALOG: dict[str, MetricDef] = {
             ),
         ),
         _g(
+            "zvm.system.info",
+            "z/VM system and hardware identity. Value is always 1. "
+            "Labels come from /proc/sysinfo, Feilong host data already collected, and config overrides.",
+            "1",
+            (
+                "zvm.host.name",
+                "zvm.system.name",
+                "lpar",
+                "lpar.number",
+                "zvm.cpc.type",
+                "zvm.cpc.model",
+                "zvm.cpc.sequence",
+                "zvm.cpc.plant",
+                "zvm.site",
+                "deployment.environment",
+                "zvm.ssi.name",
+                "host.arch",
+            ),
+        ),
+        _g(
             "zvm.host.cpu.count",
             "Logical CPUs on the z/VM LPAR (Feilong vcpus / lpar_cpu_total).",
             "{cpu}",
