@@ -1,0 +1,328 @@
+# SPDX-License-Identifier: Apache-2.0
+"""vmcp parsing, caching, and the hard command budget."""
+
+from __future__ import annotations
+
+import os
+import threading
+import time
+import tracemalloc
+from importlib.resources import files
+
+import pytest
+
+from tests.helpers import make_config, sample_values
+from zvm_otel_exporter.collector import Collector
+from zvm_otel_exporter.config import VmcpConfig
+from zvm_otel_exporter.feilong import FeilongClient
+from zvm_otel_exporter.otel import SnapshotStore
+from zvm_otel_exporter.otel import _callback as otel_callback
+from zvm_otel_exporter.prometheus import render_prometheus
+from zvm_otel_exporter.vmcp import (
+    CommandResult,
+    SubprocessRunner,
+    VmcpSource,
+    parse_alloc,
+    parse_load,
+)
+
+
+def _fixture(name: str) -> str:
+    return files("zvm_otel_exporter.fixtures.vmcp").joinpath(name).read_text(encoding="utf-8")
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class FakeRunner:
+    def __init__(self, outputs: dict[str, str], fail: set[str] | None = None) -> None:
+        self.outputs = outputs
+        self.fail = fail or set()
+        self.calls: list[tuple[str, ...]] = []
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.hold = False
+
+    def run(self, args: tuple[str, ...], timeout: float) -> CommandResult:
+        self.calls.append(args)
+        if self.hold:
+            self.entered.set()
+            self.release.wait(1)
+        key = args[-1]
+        if key in self.fail:
+            return CommandResult(stdout="", returncode=1)
+        return CommandResult(stdout=self.outputs.get(key, ""))
+
+
+def _outputs() -> dict[str, str]:
+    return {
+        "PAGE": _fixture("query_alloc_page.txt"),
+        "SPOOL": _fixture("query_alloc_spool.txt"),
+        "LOAD": _fixture("indicate_load.txt"),
+    }
+
+
+def _source(runner: FakeRunner, clock: Clock, interval: float = 60) -> VmcpSource:
+    return VmcpSource(
+        VmcpConfig(enabled=True, interval=interval, timeout=5),
+        runner=runner,
+        clock=clock,
+    )
+
+
+def test_page_and_spool_prefer_exact_volume_sums() -> None:
+    page = parse_alloc(_fixture("query_alloc_page.txt"))
+    assert page is not None
+    assert page.allocated == 7 * 600840 + 180
+    assert page.used == 14812
+    assert page.allocated != 4107 * 1024
+    spool = parse_alloc(_fixture("query_alloc_spool.txt"))
+    assert spool is not None
+    assert spool.allocated == 600840 * 2 + 510660 + 323100 + 601020 * 2
+    assert spool.used == 599500 + 508033 + 321442 + 43651 + 81642 + 588935
+    assert spool.used != 2093 * 1024
+
+
+def test_summary_fallback_and_indicate_load_shapes() -> None:
+    summary = parse_alloc(_fixture("query_alloc_summary_only.txt"))
+    assert summary == parse_alloc("SUMMARY 1000 250 25%\nUSABLE 800 200 25%\n")
+    assert summary is not None
+    assert (summary.allocated, summary.used) == (1000, 250)
+    assert parse_alloc(_fixture("unauthorized.txt")) is None
+    modern = parse_load(_fixture("indicate_load.txt"))
+    assert modern is not None
+    assert modern.utilization == 0.61
+    assert modern.cpu_count == 3
+    assert modern.paging_rate == 6
+    legacy = parse_load(_fixture("indicate_load_legacy.txt"))
+    assert legacy is not None
+    assert legacy.utilization == 0.88
+    assert legacy.cpu_count == 3
+    assert legacy.paging_rate == 23
+
+
+def test_cache_and_backoff_limit_cp_commands() -> None:
+    clock = Clock()
+    runner = FakeRunner(_outputs())
+    source = _source(runner, clock)
+    first = source.collect("OPNSTK2")
+    assert len(runner.calls) == 3
+    assert [call[-1] for call in runner.calls] == ["PAGE", "SPOOL", "LOAD"]
+    assert first.ok is True
+    assert sample_values(first, "zvm.paging.used") == [14812]
+    assert sample_values(first, "zvm.system.cpu.utilization") == [0.61]
+    assert sample_values(first, "zvm.paging.rate") == [6]
+    names = {sample.name for sample in first.samples}
+    assert not any("volume" in sample.attributes for sample in first.samples)
+    assert "zvm.system.cpu.utilization" in names
+    clock.now += 59
+    source.collect("OPNSTK2")
+    assert len(runner.calls) == 3
+    clock.now += 1
+    source.collect("OPNSTK2")
+    assert len(runner.calls) == 6
+
+    failing = FakeRunner(_outputs(), fail={"PAGE"})
+    failed = _source(failing, clock)
+    assert failed.collect("OPNSTK2").ok is False
+    assert len(failing.calls) == 3
+    clock.now += 60
+    failed.collect("OPNSTK2")
+    assert len(failing.calls) == 3
+    clock.now += 60
+    failed.collect("OPNSTK2")
+    assert len(failing.calls) == 6
+
+
+def test_concurrent_collect_does_not_double_commands() -> None:
+    clock = Clock()
+    runner = FakeRunner(_outputs())
+    runner.hold = True
+    source = _source(runner, clock)
+    results: list[int] = []
+
+    def _run() -> None:
+        reading = source.collect("OPNSTK2")
+        results.append(len(reading.samples))
+
+    first = threading.Thread(target=_run)
+    first.start()
+    assert runner.entered.wait(1)
+    second = threading.Thread(target=_run)
+    second.start()
+    second.join(1)
+    runner.release.set()
+    first.join(1)
+    assert len(runner.calls) == 3
+    assert len(results) == 2
+
+
+def test_hcp_error_rejects_mixed_summary() -> None:
+    assert parse_alloc("HCPCFC003E Specified command is unknown\n") is None
+    mixed = "HCPCFC003E Specified command is unknown\nSUMMARY 1000 250 25%\nReady;\n"
+    assert parse_alloc(mixed) is None
+    assert parse_load("HCPCFC003E Specified command is unknown\nAVGPROC-010% 02\n") is None
+    informational = "HCPABC0123I Note only\nSUMMARY 1000 250 25%\n"
+    parsed = parse_alloc(informational)
+    assert parsed is not None
+    assert (parsed.allocated, parsed.used) == (1000, 250)
+
+
+def test_subprocess_timeout_is_bounded(tmp_path) -> None:
+    pidfile = tmp_path / "pid"
+    program = tmp_path / "vmcp"
+    program.write_text(f"#!/bin/sh\necho $$ > '{pidfile}'\nsleep 30\n", encoding="utf-8")
+    program.chmod(0o755)
+    started = time.monotonic()
+    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=0.3)
+    elapsed = time.monotonic() - started
+    assert result.timed_out is True
+    assert result.failed is True
+    assert result.stdout == ""
+    assert elapsed < 3
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_subprocess_output_cap_kills_and_stays_bounded(tmp_path) -> None:
+    pidfile = tmp_path / "pid"
+    counter = tmp_path / "count"
+    program = tmp_path / "vmcp"
+    program.write_text(
+        "#!/bin/sh\n"
+        f"echo $$ > '{pidfile}'\n"
+        f"echo x >> '{counter}'\n"
+        "dd if=/dev/zero bs=1048576 count=8 status=none\n",
+        encoding="utf-8",
+    )
+    program.chmod(0o755)
+    tracemalloc.start()
+    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=5)
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert result.overflow is True
+    assert result.failed is True
+    assert result.stdout == ""
+    assert peak < 1_048_576
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+    clock = Clock()
+    source = VmcpSource(
+        VmcpConfig(enabled=True, command=str(program), interval=60, timeout=5),
+        clock=clock,
+    )
+    reading = source.collect("OPNSTK2")
+    assert reading.ok is False
+    assert sample_values(reading, "zvm.vmcp.up") == [0.0]
+    assert len(counter.read_text(encoding="utf-8").splitlines()) == 4
+    clock.now += 30
+    source.collect("OPNSTK2")
+    assert len(counter.read_text(encoding="utf-8").splitlines()) == 4
+
+
+def test_bounded_reader_parses_normal_output(tmp_path) -> None:
+    program = tmp_path / "vmcp"
+    program.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'SUMMARY 1000 250 25%' 'Ready;'\n",
+        encoding="utf-8",
+    )
+    program.chmod(0o755)
+    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=2)
+    assert result.failed is False
+    parsed = parse_alloc(result.stdout)
+    assert parsed is not None
+    assert (parsed.allocated, parsed.used) == (1000, 250)
+
+
+def test_collector_exports_vmcp_through_prometheus(mock_feilong) -> None:
+    config = make_config(mock_feilong.url)
+    config.vmcp.enabled = True
+    runner = FakeRunner(_outputs())
+    clock = Clock()
+    source = VmcpSource(config.vmcp, runner=runner, clock=clock)
+    client = FeilongClient(config.feilong, config.secrets())
+    try:
+        snapshot = Collector(client, config, vmcp=source).collect()
+        Collector(client, config, vmcp=source).collect()
+    finally:
+        client.close()
+    text = render_prometheus(snapshot).decode()
+    assert "zvm_paging_allocated_pages" in text
+    assert "zvm_paging_used_pages" in text
+    assert "zvm_spool_used_pages" in text
+    assert "zvm_system_cpu_utilization" in text
+    assert 'zvm_host_name="OPNSTK2"' in text
+    assert len(runner.calls) == 3
+    Collector(client, config, vmcp=source).collect()
+    assert len(runner.calls) == 3
+
+
+def _cache_age(payload: str) -> float:
+    for line in payload.splitlines():
+        if line.startswith("zvm_vmcp_cache_age_seconds"):
+            return float(line.rsplit(" ", 1)[-1])
+    raise AssertionError("zvm_vmcp_cache_age_seconds was not exported")
+
+
+def test_cache_age_grows_between_scrapes_without_new_commands() -> None:
+    clock = Clock()
+    runner = FakeRunner(_outputs())
+    config = make_config("http://127.0.0.1:9")
+    config.feilong.enabled = False
+    config.vmcp.enabled = True
+    source = VmcpSource(config.vmcp, runner=runner, clock=clock)
+    client = FeilongClient(config.feilong, [])
+    try:
+        snapshot = Collector(client, config, vmcp=source).collect()
+    finally:
+        client.close()
+    assert len(runner.calls) == 3
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(0.0)
+
+    clock.now += 12.5
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(12.5)
+    clock.now += 7
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(19.5)
+    assert len(runner.calls) == 3
+
+    store = SnapshotStore()
+    store.update(snapshot)
+    observations = list(otel_callback(store, "zvm.vmcp.cache_age", "gauge")(None))
+    assert [item.value for item in observations] == pytest.approx([19.5])
+
+    clock.now += 60
+    client = FeilongClient(config.feilong, [])
+    try:
+        refreshed = Collector(client, config, vmcp=source).collect()
+    finally:
+        client.close()
+    assert len(runner.calls) == 6
+    assert _cache_age(render_prometheus(refreshed).decode()) == pytest.approx(0.0)
+    clock.now += 5
+    assert _cache_age(render_prometheus(refreshed).decode()) == pytest.approx(5.0)
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(84.5)
+
+
+def test_power_state_calls_are_capped(mock_feilong) -> None:
+    from zvm_otel_exporter.collector import Collector as CollectorType
+
+    config = make_config(mock_feilong.url, per_guest_limit=1)
+    client = FeilongClient(config.feilong, config.secrets())
+    try:
+        snapshot = CollectorType(client, config).collect()
+    finally:
+        client.close()
+    power_calls = [path for path in mock_feilong.requests if path.endswith("/power_state")]
+    assert power_calls == ["/guests/CMSGUEST/power_state"]
+    assert sample_values(snapshot, "zvm.guest.up", **{"zvm.guest.id": "LINUX01"}) == []
+    assert sample_values(snapshot, "zvm.guest.cpu.time", **{"zvm.guest.id": "LINUX01"}) == [
+        509530870 / 1_000_000
+    ]

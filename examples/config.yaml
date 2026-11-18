@@ -1,0 +1,63 @@
+# Example configuration for zvm-otel-exporter.
+# Precedence is file, then environment variables, then CLI flags.
+# Keep the admin token out of this file when you can. Set
+# ZVM_EXPORTER_FEILONG_ADMIN_TOKEN in the environment instead.
+
+feilong:
+  url: https://feilong.example.com:8080
+  admin_token: replace-me
+  auth: token
+  verify_tls: true
+  # ca_file: /etc/zvm-exporter/ca.pem
+  timeout: 30
+  disk_pools:
+    - ECKD:eckdpool1
+  disk_pool_details: true
+  batch_size: 25
+  concurrency: 8
+  max_guests: 500
+  max_vswitches: 50
+  # Power state and minidisks are one HTTP call per guest. Stats stay batched.
+  per_guest_limit: 32
+
+# Local CP queries for paging, spool, and system CPU. Off unless the exporter
+# runs on a Linux on Z guest with the vmcp privilege classes documented in
+# the README. The interval cannot be set below 30 seconds.
+vmcp:
+  enabled: false
+  command: vmcp
+  interval: 60
+  timeout: 5
+  host_name: ""
+
+server:
+  listen: 0.0.0.0
+  port: 9110
+
+scrape_interval: 60
+
+exporters:
+  prometheus: true
+  otlp: false
+
+otlp:
+  endpoint: http://otel-collector:4317
+  protocol: grpc
+  insecure: true
+  timeout: 10
+  headers: {}
+
+collectors:
+  host: true
+  disk_pool: true
+  guests: true
+  interfaces: true
+  power_state: true
+  minidisks: false
+  vswitches: true
+  ssi: true
+  pcif: false
+  smapi: true
+  version: true
+
+log_level: INFO
