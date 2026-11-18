@@ -9,7 +9,7 @@ from prometheus_client import CollectorRegistry, generate_latest
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 
 from zvm_otel_exporter.catalog import CATALOG, prometheus_label, prometheus_name
-from zvm_otel_exporter.models import Sample, Snapshot
+from zvm_otel_exporter.models import Sample, Snapshot, samples_for_export
 
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -22,7 +22,7 @@ class SnapshotCollector:
 
     def collect(self):
         grouped: dict[str, list[Sample]] = {}
-        for sample in self._snapshot.samples:
+        for sample in samples_for_export(self._snapshot):
             grouped.setdefault(sample.name, []).append(sample)
         for name in sorted(grouped):
             defn = CATALOG[name]

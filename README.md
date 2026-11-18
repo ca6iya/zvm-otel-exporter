@@ -287,7 +287,7 @@ These series are the parity path for the 2017 paging, spool, and system CPU metr
 | `zvm.system.cpu.utilization` | gauge | `INDICATE LOAD` `AVGPROC` | System CPU utilization from 0 to 1. Parity with `zvm_system_cpu_in_use`. |
 | `zvm.system.cpu.count` | gauge | the count after `AVGPROC` | Processors `INDICATE LOAD` reports. This is not Feilong's `zvm.host.cpu.count`. |
 | `zvm.vmcp.up` | gauge | local | 1 when the last pass ran all three commands and every response parsed. |
-| `zvm.vmcp.cache_age` | gauge | local | Seconds since that pass. A scrape inside the interval does not run CP. |
+| `zvm.vmcp.cache_age` | gauge | local | Seconds since that pass. Prometheus and OTLP compute it at read time from a monotonic timestamp, so it climbs between refreshes and resets when the next pass runs. A scrape does not run CP. |
 | `zvm.vmcp.command_duration` | gauge | local | Seconds spent in the last pass. |
 | `zvm.vmcp.consecutive_failures` | gauge | local | Failure streak. The next attempt waits longer as this grows. |
 
@@ -313,7 +313,7 @@ The collector is off by default. Turn it on only on a Linux on Z guest that is a
 
 The pass runs at most once per `vmcp.interval` (default 60 seconds). Values below 30 seconds are rejected. Each command has its own hard subprocess timeout (default 5 seconds, maximum 10). The captured text is cut to the last 64 KiB before it is parsed, so a long volume list cannot grow the process. There is no per-guest CP command, no extra thread, no queue, and no CP Monitor or MONWRITE. The command list is fixed; the config cannot pass an arbitrary CP command.
 
-If a command is missing, times out, is rejected, or cannot be parsed, the next pass waits `interval * 2^n`, capped at 15 minutes. A clean pass resets that wait to the normal interval. `zvm.vmcp.cache_age` shows how long the current numbers have been cached.
+If a command is missing, times out, is rejected, or cannot be parsed, the next pass waits `interval * 2^n`, capped at 15 minutes. A clean pass resets that wait to the normal interval. `zvm.vmcp.cache_age` is computed when the snapshot is read, from a monotonic timestamp of the last pass, so it climbs between refreshes without another command.
 
 Worst case on a healthy system: three short CP queries a minute, each normally well under a second. The timeout budget is 15 seconds and is spent only if `vmcp` hangs. That is the whole z/VM cost of this collector.
 

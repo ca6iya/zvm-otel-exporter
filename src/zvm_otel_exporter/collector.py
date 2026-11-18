@@ -117,7 +117,16 @@ class Collector:
             self.api_errors,
             duration,
         )
-        return Snapshot(tuple(samples), up, stale, wall)
+        cached_at = None if self.vmcp is None else self.vmcp.cached_at
+        clock = None if self.vmcp is None else self.vmcp.clock
+        return Snapshot(
+            tuple(samples),
+            up,
+            stale,
+            wall,
+            vmcp_cached_at=cached_at,
+            clock=clock,
+        )
 
     def _warn_fast_scrape(self) -> None:
         if self._warned_fast_scrape or not self.config.feilong.enabled:

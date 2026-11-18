@@ -132,6 +132,18 @@ class VmcpSource:
         self._spool: AllocStats | None = None
         self._load: LoadStats | None = None
 
+    @property
+    def cached_at(self) -> float | None:
+        """Monotonic time of the last command pass, or None before the first pass."""
+
+        if self._last_run <= 0:
+            return None
+        return self._last_run
+
+    @property
+    def clock(self) -> Callable[[], float]:
+        return self._clock
+
     def collect(self, host: str) -> VmcpReading:
         now = self._clock()
         if not self._lock.acquire(blocking=False):
@@ -173,7 +185,7 @@ class VmcpSource:
             log.warning("vmcp INDICATE LOAD returned no AVGPROC value")
         if self._page is None or self._spool is None or self._load is None:
             failed = True
-        self._last_run = now
+        self._last_run = self._clock()
         if failed:
             self._failures += 1
             delay = min(self._config.interval * (2**self._failures), _BACKOFF_CAP)

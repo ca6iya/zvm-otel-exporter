@@ -24,6 +24,7 @@ from opentelemetry.sdk.resources import Resource
 from zvm_otel_exporter import __version__
 from zvm_otel_exporter.catalog import CATALOG
 from zvm_otel_exporter.config import OtlpConfig
+from zvm_otel_exporter.models import samples_for_export
 
 
 class SnapshotStore:
@@ -139,7 +140,7 @@ def _register(meter, store: SnapshotStore) -> None:
 def _callback(store: SnapshotStore, name: str, instrument_type: str):
     def observe(_options: CallbackOptions) -> Iterable[Observation]:
         snapshot = store.get()
-        for sample in snapshot.samples:
+        for sample in samples_for_export(snapshot):
             if sample.name != name:
                 continue
             if instrument_type == "counter" and sample.value < 0:

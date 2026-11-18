@@ -455,7 +455,8 @@ CATALOG: dict[str, MetricDef] = {
         ),
         _g(
             "zvm.vmcp.cache_age",
-            "Seconds since the last vmcp command pass. Scrapes within the interval do not run CP.",
+            "Seconds since the last vmcp command pass, read from a monotonic timestamp "
+            "when Prometheus or OTLP exports the snapshot. Scrapes within the interval do not run CP.",
             "s",
             _HOST,
         ),

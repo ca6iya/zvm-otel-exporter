@@ -6,10 +6,14 @@ from __future__ import annotations
 import threading
 from importlib.resources import files
 
+import pytest
+
 from tests.helpers import make_config, sample_values
 from zvm_otel_exporter.collector import Collector
 from zvm_otel_exporter.config import VmcpConfig
 from zvm_otel_exporter.feilong import FeilongClient
+from zvm_otel_exporter.otel import SnapshotStore
+from zvm_otel_exporter.otel import _callback as otel_callback
 from zvm_otel_exporter.prometheus import render_prometheus
 from zvm_otel_exporter.vmcp import (
     CommandResult,
@@ -185,6 +189,52 @@ def test_collector_exports_vmcp_through_prometheus(mock_feilong) -> None:
     assert len(runner.calls) == 3
     Collector(client, config, vmcp=source).collect()
     assert len(runner.calls) == 3
+
+
+def _cache_age(payload: str) -> float:
+    for line in payload.splitlines():
+        if line.startswith("zvm_vmcp_cache_age_seconds"):
+            return float(line.rsplit(" ", 1)[-1])
+    raise AssertionError("zvm_vmcp_cache_age_seconds was not exported")
+
+
+def test_cache_age_grows_between_scrapes_without_new_commands() -> None:
+    clock = Clock()
+    runner = FakeRunner(_outputs())
+    config = make_config("http://127.0.0.1:9")
+    config.feilong.enabled = False
+    config.vmcp.enabled = True
+    source = VmcpSource(config.vmcp, runner=runner, clock=clock)
+    client = FeilongClient(config.feilong, [])
+    try:
+        snapshot = Collector(client, config, vmcp=source).collect()
+    finally:
+        client.close()
+    assert len(runner.calls) == 3
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(0.0)
+
+    clock.now += 12.5
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(12.5)
+    clock.now += 7
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(19.5)
+    assert len(runner.calls) == 3
+
+    store = SnapshotStore()
+    store.update(snapshot)
+    observations = list(otel_callback(store, "zvm.vmcp.cache_age", "gauge")(None))
+    assert [item.value for item in observations] == pytest.approx([19.5])
+
+    clock.now += 60
+    client = FeilongClient(config.feilong, [])
+    try:
+        refreshed = Collector(client, config, vmcp=source).collect()
+    finally:
+        client.close()
+    assert len(runner.calls) == 6
+    assert _cache_age(render_prometheus(refreshed).decode()) == pytest.approx(0.0)
+    clock.now += 5
+    assert _cache_age(render_prometheus(refreshed).decode()) == pytest.approx(5.0)
+    assert _cache_age(render_prometheus(snapshot).decode()) == pytest.approx(84.5)
 
 
 def test_power_state_calls_are_capped(mock_feilong) -> None:
