@@ -311,7 +311,7 @@ The collector is off by default. Turn it on only on a Linux on Z guest that is a
 2. `QUERY ALLOC SPOOL`
 3. `INDICATE LOAD`
 
-The pass runs at most once per `vmcp.interval` (default 60 seconds). Values below 30 seconds are rejected. Each command has its own hard subprocess timeout (default 5 seconds, maximum 10). The captured text is cut to the last 64 KiB before it is parsed, so a long volume list cannot grow the process. There is no per-guest CP command, no extra thread, no queue, and no CP Monitor or MONWRITE. The command list is fixed; the config cannot pass an arbitrary CP command.
+The pass runs at most once per `vmcp.interval` (default 60 seconds). Values below 30 seconds are rejected. Each command has its own hard subprocess timeout (default 5 seconds, maximum 10). Each stream is read only up to 64 KiB. A command that writes more than that is killed, reaped, and counted as a failed pass, so a huge reply cannot be buffered in memory. An HCP message with severity E rejects the output even when a SUMMARY line is mixed in. There is no per-guest CP command, no extra thread, no queue, and no CP Monitor or MONWRITE. The command list is fixed; the config cannot pass an arbitrary CP command.
 
 If a command is missing, times out, is rejected, or cannot be parsed, the next pass waits `interval * 2^n`, capped at 15 minutes. A clean pass resets that wait to the normal interval. `zvm.vmcp.cache_age` is computed when the snapshot is read, from a monotonic timestamp of the last pass, so it climbs between refreshes without another command.
 

@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
+import tracemalloc
 from importlib.resources import files
 
 import pytest
@@ -159,13 +162,84 @@ def test_concurrent_collect_does_not_double_commands() -> None:
     assert len(results) == 2
 
 
+def test_hcp_error_rejects_mixed_summary() -> None:
+    assert parse_alloc("HCPCFC003E Specified command is unknown\n") is None
+    mixed = "HCPCFC003E Specified command is unknown\nSUMMARY 1000 250 25%\nReady;\n"
+    assert parse_alloc(mixed) is None
+    assert parse_load("HCPCFC003E Specified command is unknown\nAVGPROC-010% 02\n") is None
+    informational = "HCPABC0123I Note only\nSUMMARY 1000 250 25%\n"
+    parsed = parse_alloc(informational)
+    assert parsed is not None
+    assert (parsed.allocated, parsed.used) == (1000, 250)
+
+
 def test_subprocess_timeout_is_bounded(tmp_path) -> None:
+    pidfile = tmp_path / "pid"
     program = tmp_path / "vmcp"
-    program.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    program.write_text(f"#!/bin/sh\necho $$ > '{pidfile}'\nsleep 30\n", encoding="utf-8")
     program.chmod(0o755)
-    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=0.2)
+    started = time.monotonic()
+    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=0.3)
+    elapsed = time.monotonic() - started
     assert result.timed_out is True
     assert result.failed is True
+    assert result.stdout == ""
+    assert elapsed < 3
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_subprocess_output_cap_kills_and_stays_bounded(tmp_path) -> None:
+    pidfile = tmp_path / "pid"
+    counter = tmp_path / "count"
+    program = tmp_path / "vmcp"
+    program.write_text(
+        "#!/bin/sh\n"
+        f"echo $$ > '{pidfile}'\n"
+        f"echo x >> '{counter}'\n"
+        "dd if=/dev/zero bs=1048576 count=8 status=none\n",
+        encoding="utf-8",
+    )
+    program.chmod(0o755)
+    tracemalloc.start()
+    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=5)
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert result.overflow is True
+    assert result.failed is True
+    assert result.stdout == ""
+    assert peak < 1_048_576
+    pid = int(pidfile.read_text(encoding="utf-8"))
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+    clock = Clock()
+    source = VmcpSource(
+        VmcpConfig(enabled=True, command=str(program), interval=60, timeout=5),
+        clock=clock,
+    )
+    reading = source.collect("OPNSTK2")
+    assert reading.ok is False
+    assert sample_values(reading, "zvm.vmcp.up") == [0.0]
+    assert len(counter.read_text(encoding="utf-8").splitlines()) == 4
+    clock.now += 30
+    source.collect("OPNSTK2")
+    assert len(counter.read_text(encoding="utf-8").splitlines()) == 4
+
+
+def test_bounded_reader_parses_normal_output(tmp_path) -> None:
+    program = tmp_path / "vmcp"
+    program.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'SUMMARY 1000 250 25%' 'Ready;'\n",
+        encoding="utf-8",
+    )
+    program.chmod(0o755)
+    result = SubprocessRunner(str(program)).run(("QUERY", "ALLOC", "PAGE"), timeout=2)
+    assert result.failed is False
+    parsed = parse_alloc(result.stdout)
+    assert parsed is not None
+    assert (parsed.allocated, parsed.used) == (1000, 250)
 
 
 def test_collector_exports_vmcp_through_prometheus(mock_feilong) -> None:

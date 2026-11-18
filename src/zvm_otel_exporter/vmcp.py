@@ -15,13 +15,18 @@ Prometheus scrapes read the cached samples and do not start a new command.
 
 from __future__ import annotations
 
+import fcntl
 import logging
+import os
 import re
+import signal
 import subprocess
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from select import select
+from typing import IO
 
 from zvm_otel_exporter.config import VmcpConfig
 from zvm_otel_exporter.models import Sample
@@ -47,10 +52,9 @@ _AVGPROC = re.compile(
     re.IGNORECASE,
 )
 _PAGING_RATE = re.compile(r"PAGING\s*-\s*(\d+)\s*/\s*SEC", re.IGNORECASE)
-_UNAUTHORIZED = re.compile(
-    r"unauthorized|not authorized|privilege class|unknown cp command|hcp\w*001e",
-    re.IGNORECASE,
-)
+# CP message id, matching Feilong: module letters, a 3- or 4-digit number, then
+# severity E, I, or W. Only E rejects the command output.
+_HCP_MESSAGE = re.compile(r"HCP[A-Z0-9]*\d{3,4}([EIW])", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -59,10 +63,11 @@ class CommandResult:
     returncode: int = 0
     timed_out: bool = False
     not_found: bool = False
+    overflow: bool = False
 
     @property
     def failed(self) -> bool:
-        return self.not_found or self.timed_out or self.returncode != 0
+        return self.not_found or self.timed_out or self.overflow or self.returncode != 0
 
 
 @dataclass(frozen=True)
@@ -92,22 +97,29 @@ class SubprocessRunner:
 
     def run(self, args: tuple[str, ...], timeout: float) -> CommandResult:
         try:
-            completed = subprocess.run(
+            proc = subprocess.Popen(
                 [self._command, *args],
-                timeout=timeout,
-                capture_output=True,
-                check=False,
-                text=True,
-                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout if isinstance(exc.stdout, str) else ""
-            return CommandResult(stdout=_tail(stdout), returncode=124, timed_out=True)
         except FileNotFoundError:
             return CommandResult(stdout="", not_found=True, returncode=127)
         except OSError:
             return CommandResult(stdout="", returncode=126)
-        return CommandResult(stdout=_tail(completed.stdout or ""), returncode=completed.returncode)
+        stdout, _stderr, timed_out, overflow = _capture_bounded(proc, timeout)
+        if timed_out or overflow:
+            returncode = _reap(proc, kill=True)
+            return CommandResult(
+                stdout="",
+                returncode=returncode if returncode is not None else 124,
+                timed_out=timed_out,
+                overflow=overflow,
+            )
+        returncode = _reap(proc, kill=False)
+        text = stdout.decode("utf-8", errors="replace")
+        return CommandResult(stdout=text, returncode=0 if returncode is None else returncode)
 
 
 class VmcpSource:
@@ -162,8 +174,8 @@ class VmcpSource:
         for name, args in _COMMANDS:
             result = self._runner.run(args, self._config.timeout)
             reason = _failure_reason(result)
-            if reason is None and _unauthorized(result.stdout):
-                reason = "unauthorized"
+            if reason is None and _cp_error(result.stdout):
+                reason = "cp error"
             if reason is not None:
                 failed = True
                 texts[name] = ""
@@ -233,7 +245,7 @@ def parse_alloc(text: str) -> AllocStats | None:
     fallback when the volume list is absent or already scaled.
     """
 
-    if not text.strip() or _unauthorized(text):
+    if not text.strip() or _cp_error(text):
         return None
     allocated = 0
     used = 0
@@ -270,7 +282,7 @@ def parse_alloc(text: str) -> AllocStats | None:
 def parse_load(text: str) -> LoadStats | None:
     """Parse ``INDICATE LOAD``. Per-processor lines are ignored."""
 
-    if not text.strip() or _unauthorized(text):
+    if not text.strip() or _cp_error(text):
         return None
     avg = _AVGPROC.search(text)
     if avg is None:
@@ -328,13 +340,17 @@ def _apply_scale(value: int, suffix: str | None) -> int:
     return value * (1024**power)
 
 
-def _unauthorized(text: str) -> bool:
-    return _UNAUTHORIZED.search(text) is not None
+def _cp_error(text: str) -> bool:
+    """True when CP emitted an error-severity HCP message."""
+
+    return any(match.group(1).upper() == "E" for match in _HCP_MESSAGE.finditer(text))
 
 
 def _failure_reason(result: CommandResult) -> str | None:
     if result.not_found:
         return "vmcp program not found"
+    if result.overflow:
+        return "output exceeded 64 KiB"
     if result.timed_out:
         return "timeout"
     if result.returncode != 0:
@@ -342,7 +358,72 @@ def _failure_reason(result: CommandResult) -> str | None:
     return None
 
 
-def _tail(text: str) -> str:
-    if len(text) <= _MAX_OUTPUT:
-        return text
-    return text[-_MAX_OUTPUT:]
+def _capture_bounded(
+    proc: subprocess.Popen[bytes], timeout: float
+) -> tuple[bytes, bytes, bool, bool]:
+    """Read stdout and stderr until EOF, the timeout, or the byte cap.
+
+    Each stream keeps at most ``_MAX_OUTPUT`` bytes. One extra read detects
+    overflow, and that extra byte is not stored. The caller reaps ``proc``.
+    """
+
+    deadline = time.monotonic() + timeout
+    stdout = bytearray()
+    stderr = bytearray()
+    streams: dict[int, tuple[IO[bytes], bytearray]] = {}
+    for stream, buf in ((proc.stdout, stdout), (proc.stderr, stderr)):
+        if stream is None:
+            continue
+        _set_nonblocking(stream.fileno())
+        streams[stream.fileno()] = (stream, buf)
+    while streams:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return bytes(stdout), bytes(stderr), True, False
+        readable, _, _ = select(list(streams), [], [], remaining)
+        if not readable:
+            return bytes(stdout), bytes(stderr), True, False
+        for fd in readable:
+            stream, buf = streams[fd]
+            try:
+                chunk = os.read(fd, 8192)
+            except BlockingIOError:
+                continue
+            if not chunk:
+                streams.pop(fd, None)
+                stream.close()
+                continue
+            room = _MAX_OUTPUT - len(buf)
+            if room <= 0 or len(chunk) > room:
+                return bytes(stdout), bytes(stderr), False, True
+            buf.extend(chunk)
+    return bytes(stdout), bytes(stderr), False, False
+
+
+def _set_nonblocking(fd: int) -> None:
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+
+def _reap(proc: subprocess.Popen[bytes], *, kill: bool) -> int | None:
+    """Stop the process group when asked, then wait so it cannot stay a zombie."""
+
+    if kill and proc.poll() is None:
+        _kill_group(proc)
+    for stream in (proc.stdout, proc.stderr):
+        if stream is not None and not stream.closed:
+            stream.close()
+    try:
+        return proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _kill_group(proc)
+        return proc.wait(timeout=5)
+
+
+def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        proc.kill()
