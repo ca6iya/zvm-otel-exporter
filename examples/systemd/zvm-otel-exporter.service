@@ -1,0 +1,21 @@
+[Unit]
+Description=z/VM Prometheus and OpenTelemetry metrics exporter
+Documentation=https://github.com/openmainframeproject/feilong
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zvm-exporter
+Group=zvm-exporter
+ExecStart=/usr/local/bin/zvm-otel-exporter --config /etc/zvm-exporter/config.yaml
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=-/etc/zvm-exporter/environment
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

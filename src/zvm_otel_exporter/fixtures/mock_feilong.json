@@ -1,0 +1,209 @@
+{
+  "version": {
+    "api_version": "1.0",
+    "min_version": "1.0",
+    "max_version": "1.0",
+    "version": "1.6.7"
+  },
+  "smapi_health": {
+    "totalSuccess": 12,
+    "totalFail": 1,
+    "lastSuccess": "2026-01-01T00:00:00Z",
+    "lastFail": "",
+    "continuousFail": 0,
+    "healthy": true
+  },
+  "host": {
+    "disk_available": 3057,
+    "ipl_time": "IPL at 06/02/17 11:07:10 EDT",
+    "vcpus_used": 6,
+    "hypervisor_type": "zvm",
+    "vcpus": 6,
+    "zvm_host": "OPNSTK2",
+    "memory_mb": 51200.0,
+    "cpu_info": {
+      "cec_model": "2817",
+      "architecture": "s390x"
+    },
+    "disk_total": 3623,
+    "zcc_userid": "ZCCUID",
+    "hypervisor_hostname": "OPNSTK2",
+    "hypervisor_version": 640,
+    "disk_used": 566,
+    "memory_mb_used": 0.0
+  },
+  "diskpool": {
+    "summary": {
+      "disk_available": 3060,
+      "disk_total": 3623,
+      "disk_used": 563
+    },
+    "volumes": {
+      "ECKDPOOL": [
+        {
+          "volume_name": "VOL1",
+          "device_type": "3390",
+          "start_cylinder": 13456,
+          "free_size": 2345,
+          "dasd_group": "ECKDPOOL",
+          "region_name": "VOL1"
+        },
+        {
+          "volume_name": "VOL2",
+          "device_type": "3390",
+          "start_cylinder": "22456",
+          "free_size": 12980,
+          "dasd_group": "ECKDPOOL",
+          "region_name": "VOL2"
+        }
+      ]
+    }
+  },
+  "guests": ["LINUX01", "CMSGUEST"],
+  "host_guests": ["LINUX01", "CMSGUEST", "OPERATOR"],
+  "stats": {
+    "LINUX01": {
+      "guest_cpus": 2,
+      "used_cpu_time_us": 509530870,
+      "elapsed_cpu_time_us": 260788896874,
+      "min_cpu_count": 2,
+      "max_cpu_limit": 10000,
+      "samples_cpu_in_use": 335,
+      "samples_cpu_delay": 116,
+      "used_mem_kb": 396232,
+      "max_mem_kb": 2097152,
+      "min_mem_kb": 0,
+      "shared_mem_kb": 396232,
+      "total_memory": 2030428,
+      "available_memory": 892136,
+      "free_memory": 791368
+    },
+    "CMSGUEST": {
+      "guest_cpus": 1,
+      "used_cpu_time_us": 1000000,
+      "elapsed_cpu_time_us": 5000000,
+      "min_cpu_count": 1,
+      "max_cpu_limit": 10000,
+      "samples_cpu_in_use": 10,
+      "samples_cpu_delay": 2,
+      "used_mem_kb": 1024,
+      "max_mem_kb": 1048576,
+      "min_mem_kb": 0,
+      "shared_mem_kb": 0,
+      "total_memory": 1048576,
+      "available_memory": 524288,
+      "free_memory": 262144
+    }
+  },
+  "interfaces": {
+    "LINUX01": [
+      {
+        "vswitch_name": "MYSWITCH",
+        "nic_vdev": "1000",
+        "nic_fr_rx": 116686,
+        "nic_fr_tx": 14892,
+        "nic_fr_rx_dsc": 0,
+        "nic_fr_tx_dsc": 0,
+        "nic_fr_rx_err": 0,
+        "nic_fr_tx_err": 0,
+        "nic_rx": 6131168,
+        "nic_tx": 1367740
+      }
+    ],
+    "CMSGUEST": [
+      {
+        "vswitch_name": "MYSWITCH",
+        "nic_vdev": "0600",
+        "nic_fr_rx": 10,
+        "nic_fr_tx": 4,
+        "nic_fr_rx_dsc": 1,
+        "nic_fr_tx_dsc": 0,
+        "nic_fr_rx_err": 2,
+        "nic_fr_tx_err": 0,
+        "nic_rx": 1000,
+        "nic_tx": 400
+      }
+    ]
+  },
+  "power": {
+    "LINUX01": "on",
+    "CMSGUEST": "off"
+  },
+  "disks": {
+    "LINUX01": {
+      "minidisks": [
+        {
+          "vdev": "0100",
+          "rdev": "6018",
+          "access_type": "R/W",
+          "device_type": "3390",
+          "device_size": 29128,
+          "device_units": "Cylinders",
+          "volume_label": "VM6018"
+        }
+      ]
+    },
+    "CMSGUEST": {
+      "minidisks": []
+    }
+  },
+  "vswitches": {
+    "TESTVSW": {
+      "switch_name": "TESTVSW",
+      "switch_type": "QDIO",
+      "switch_status": "OSA device ready.",
+      "transport_type": "ETHERNET",
+      "real_devices": {
+        "8070": {
+          "dev_status": "Device is active.",
+          "controller": "DTCVSW1",
+          "vdev": "0600"
+        }
+      },
+      "authorized_users": {
+        "UB160120": {"vlan_count": 0},
+        "OPNCLOUD": {"vlan_count": 0}
+      },
+      "adapters": {
+        "UB160120_1009": {"mac": "02-00-0C-00-01-2D", "type": "QDIO"},
+        "OPNCLOUD_0700": {"mac": "02-00-0C-00-00-0C", "type": "QDIO"}
+      }
+    }
+  },
+  "ssi": [
+    "ssi_name = ZVM2SSI",
+    "ssi_mode = Stable",
+    "ssi_pdr = IAS7CM_on_139E",
+    "cross_system_timeouts = Enabled",
+    "output.ssiInfoCount = 2",
+    "",
+    "member_slot = 1",
+    "member_system_id = OPNSTK2",
+    "member_state = Joined",
+    "member_pdr_heartbeat = 01/12/2022_04:17:54",
+    "member_received_heartbeat = 01/12/2022_04:17:54",
+    "",
+    "member_slot = 2",
+    "member_system_id = OPNSTK3",
+    "member_state = Joined",
+    "member_pdr_heartbeat = 01/12/2022_04:17:35",
+    "member_received_heartbeat = 01/12/2022_04:17:35",
+    ""
+  ],
+  "pcif": [
+    {
+      "pcif": "0000015E",
+      "status": "ATTACHED",
+      "userid": "LINUX01",
+      "state": "ENABLED",
+      "type": "NETH"
+    },
+    {
+      "pcif": "0000015F",
+      "status": "FREE",
+      "userid": "",
+      "state": "DISABLED",
+      "type": "NETH"
+    }
+  ]
+}

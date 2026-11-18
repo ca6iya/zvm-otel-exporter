@@ -1,0 +1,193 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none", "min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "zvm_exporter_up", "refId": "A"}],
+      "title": "Exporter up",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 4, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [
+        {"expr": "zvm_host_cpu_used_cpus{zvm_host_name=\"$host\"}", "legendFormat": "used", "refId": "A"},
+        {"expr": "zvm_host_cpu_count_cpus{zvm_host_name=\"$host\"}", "legendFormat": "count", "refId": "B"}
+      ],
+      "title": "Host CPUs",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 9, "y": 0},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [
+        {
+          "expr": "100 * zvm_host_memory_usage_bytes{zvm_host_name=\"$host\"} / zvm_host_memory_limit_bytes{zvm_host_name=\"$host\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Host memory used",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 14, "y": 0},
+      "id": 4,
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "zvm_host_disk_available_bytes{zvm_host_name=\"$host\"}", "refId": "A"}],
+      "title": "Host disk free",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none", "min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 19, "y": 0},
+      "id": 5,
+      "options": {"colorMode": "background", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "zvm_smapi_healthy", "refId": "A"}],
+      "title": "SMAPI healthy",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "id": 6,
+      "targets": [
+        {
+          "expr": "rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=\"$host\"}[5m])",
+          "legendFormat": "{{zvm_guest_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Guest CPU cores (rate of CPU time)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "id": 7,
+      "targets": [
+        {
+          "expr": "zvm_guest_memory_usage_bytes{zvm_host_name=\"$host\"}",
+          "legendFormat": "{{zvm_guest_id}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Guest memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 8,
+      "targets": [
+        {
+          "expr": "rate(zvm_guest_network_io_bytes_total{zvm_host_name=\"$host\"}[5m])",
+          "legendFormat": "{{zvm_guest_id}} {{network_interface_name}} {{network_io_direction}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Guest NIC throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 9,
+      "targets": [
+        {
+          "expr": "zvm_disk_pool_available_bytes{zvm_host_name=\"$host\"}",
+          "legendFormat": "{{zvm_disk_pool}} free",
+          "refId": "A"
+        },
+        {
+          "expr": "zvm_disk_pool_usage_bytes{zvm_host_name=\"$host\"}",
+          "legendFormat": "{{zvm_disk_pool}} used",
+          "refId": "B"
+        }
+      ],
+      "title": "Disk pools",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "id": 10,
+      "targets": [
+        {
+          "expr": "zvm_guest_up{zvm_host_name=\"$host\"}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Guest power",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none", "min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "id": 11,
+      "targets": [
+        {
+          "expr": "zvm_ssi_member_joined",
+          "legendFormat": "{{zvm_ssi_member}}",
+          "refId": "A"
+        }
+      ],
+      "title": "SSI members joined",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["zvm", "mainframe"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1
+      },
+      {
+        "current": {},
+        "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+        "definition": "label_values(zvm_host_cpu_count_cpus, zvm_host_name)",
+        "includeAll": false,
+        "multi": false,
+        "name": "host",
+        "query": {"query": "label_values(zvm_host_cpu_count_cpus, zvm_host_name)", "refId": "A"},
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "z/VM Feilong exporter",
+  "uid": "zvm-otel-exporter",
+  "version": 1
+}

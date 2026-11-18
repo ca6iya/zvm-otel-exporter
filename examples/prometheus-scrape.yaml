@@ -1,0 +1,10 @@
+# Prometheus scrape fragment. The exporter listens on port 9110, the same
+# port the 2017 zvm_exporter used.
+
+scrape_configs:
+  - job_name: zvm
+    scrape_interval: 60s
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - zvm-exporter.example.com:9110
