@@ -17,6 +17,18 @@ feilong:
   concurrency: 8
   max_guests: 500
   max_vswitches: 50
+  # Power state and minidisks are one HTTP call per guest. Stats stay batched.
+  per_guest_limit: 32
+
+# Local CP queries for paging, spool, and system CPU. Off unless the exporter
+# runs on a Linux on Z guest with the vmcp privilege classes documented in
+# the README. The interval cannot be set below 30 seconds.
+vmcp:
+  enabled: false
+  command: vmcp
+  interval: 60
+  timeout: 5
+  host_name: ""
 
 server:
   listen: 0.0.0.0

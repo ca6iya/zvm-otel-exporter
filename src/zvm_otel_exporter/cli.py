@@ -23,7 +23,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="zvm-otel-exporter",
         description=(
-            "Export z/VM host and guest metrics from the Feilong REST API "
+            "Export z/VM metrics from Feilong and, optionally, local vmcp commands "
             "to Prometheus and OpenTelemetry."
         ),
     )
@@ -84,6 +84,40 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--otlp-timeout", type=float, help="OTLP export timeout in seconds")
     parser.add_argument("--log-level", help="DEBUG, INFO, WARNING, ERROR, or CRITICAL")
     parser.add_argument(
+        "--feilong",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        dest="feilong_enabled",
+        help="Collect from Feilong (default: true)",
+    )
+    parser.add_argument(
+        "--per-guest-limit",
+        type=int,
+        dest="per_guest_limit",
+        help="Maximum guests for per-guest Feilong calls such as power state (default 32)",
+    )
+    parser.add_argument(
+        "--vmcp",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Collect paging, spool, and system CPU with local vmcp (default: false)",
+    )
+    parser.add_argument("--vmcp-command", help="vmcp executable (default: vmcp)")
+    parser.add_argument(
+        "--vmcp-interval",
+        type=float,
+        help="Minimum seconds between vmcp command passes (default 60, minimum 30)",
+    )
+    parser.add_argument(
+        "--vmcp-timeout",
+        type=float,
+        help="Hard timeout in seconds for each vmcp command (default 5, maximum 10)",
+    )
+    parser.add_argument(
+        "--vmcp-host-name",
+        help="z/VM host label used when Feilong has not supplied one",
+    )
+    parser.add_argument(
         "--once",
         action="store_true",
         help="Scrape once, write Prometheus text to stdout, flush OTLP, and exit",
@@ -104,9 +138,10 @@ def main(argv: list[str] | None = None) -> int:
     if config.otlp.enabled:
         otlp_state = f"{config.otlp.protocol} {safe_url(config.otlp.endpoint)}"
     log.info(
-        "zvm-otel-exporter %s starting; feilong=%s prometheus=%s otlp=%s header_count=%s",
+        "zvm-otel-exporter %s starting; feilong=%s vmcp=%s prometheus=%s otlp=%s header_count=%s",
         __version__,
-        safe_url(config.feilong.url),
+        "off" if not config.feilong.enabled else safe_url(config.feilong.url),
+        "off" if not config.vmcp.enabled else f"every {config.vmcp.interval:.0f}s",
         config.prometheus_enabled,
         otlp_state,
         len(config.otlp.headers),

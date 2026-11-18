@@ -42,12 +42,18 @@ from zvm_otel_exporter.translate import (
     version_samples,
     vswitch_samples,
 )
+from zvm_otel_exporter.vmcp import VmcpSource
 
 log = logging.getLogger(__name__)
 
 
 class Collector:
-    def __init__(self, client: FeilongClient, config: Config) -> None:
+    def __init__(
+        self,
+        client: FeilongClient,
+        config: Config,
+        vmcp: VmcpSource | None = None,
+    ) -> None:
         self.client = client
         self.config = config
         self.api_errors = 0
@@ -56,19 +62,38 @@ class Collector:
         self.host_name = ""
         self._down = False
         self._lock = threading.Lock()
+        self._warned_fast_scrape = False
+        if vmcp is not None:
+            self.vmcp: VmcpSource | None = vmcp
+        elif config.vmcp.enabled:
+            self.vmcp = VmcpSource(config.vmcp)
+        else:
+            self.vmcp = None
 
     def collect(self) -> Snapshot:
         started = time.perf_counter()
         wall = time.time()
         self._down = False
+        self._warn_fast_scrape()
         try:
-            fresh, host_ok = self._gather()
+            if self.config.feilong.enabled:
+                fresh, host_ok = self._gather()
+            else:
+                fresh, host_ok = [], False
         except Exception as exc:
             log.warning("unexpected scrape error: %s", exc)
             with self._lock:
                 self.api_errors += 1
             fresh, host_ok = [], False
-        if self.config.collectors.host:
+        vmcp_ok = False
+        if self.vmcp is not None:
+            host = self.host_name or self.config.vmcp.host_name or "local"
+            reading = self.vmcp.collect(host)
+            fresh.extend(reading.samples)
+            vmcp_ok = reading.ok
+        if not self.config.feilong.enabled:
+            up = vmcp_ok
+        elif self.config.collectors.host:
             up = host_ok
         else:
             up = not self._down
@@ -93,6 +118,17 @@ class Collector:
             duration,
         )
         return Snapshot(tuple(samples), up, stale, wall)
+
+    def _warn_fast_scrape(self) -> None:
+        if self._warned_fast_scrape or not self.config.feilong.enabled:
+            return
+        if self.config.scrape_interval >= 30:
+            return
+        self._warned_fast_scrape = True
+        log.warning(
+            "scrape_interval %.0fs is below 30s; Feilong is queried on every scrape",
+            self.config.scrape_interval,
+        )
 
     def _exporter_samples(self, up: bool, stale: bool, duration: float) -> list[Sample]:
         with self._lock:
@@ -249,7 +285,7 @@ class Collector:
             nics = self._batched("/guests/interfacestats", merged, "guest interface stats")
             fresh.extend(interface_samples(host, nics))
         power_ids = managed if managed is not None else (host_guests or [])
-        power_ids = power_ids[: self.config.feilong.max_guests]
+        power_ids = self._cap_per_guest(power_ids)
         if toggles.power_state and power_ids:
             fresh.extend(power_samples(host, self._power(power_ids)))
         if toggles.minidisks and power_ids:
@@ -280,7 +316,7 @@ class Collector:
 
     def _power(self, userids: list[str]) -> dict[str, str]:
         states: dict[str, str] = {}
-        workers = min(self.config.feilong.concurrency, len(userids)) or 1
+        workers = min(self.config.feilong.concurrency, len(userids), 16) or 1
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(self._one_power, userid): userid for userid in userids}
             for future in as_completed(futures):
@@ -303,6 +339,18 @@ class Collector:
         if output is None:
             return None
         return parse_power(output)
+
+    def _cap_per_guest(self, userids: list[str]) -> list[str]:
+        limit = self.config.feilong.per_guest_limit
+        ordered = sorted(userids)
+        if len(ordered) > limit:
+            log.warning(
+                "per-guest Feilong calls limited to %s of %s guests",
+                limit,
+                len(ordered),
+            )
+            return ordered[:limit]
+        return ordered
 
 
 def _merge_ids(managed: list[str] | None, host_guests: list[str] | None) -> list[str]:

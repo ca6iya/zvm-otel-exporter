@@ -1,0 +1,2 @@
+HCPCMD001E Unknown/unauthorized CP command: QUERY ALLOC
+Ready;

@@ -106,6 +106,25 @@ def test_parse_headers_forms() -> None:
     assert parse_headers('{"Authorization":"Api-Token abc"}') == {"Authorization": "Api-Token abc"}
 
 
+def test_vmcp_only_does_not_require_feilong_and_interval_has_a_floor() -> None:
+    config = load_config(
+        _args(vmcp=True, feilong_enabled=False, prometheus=True),
+        environ={},
+    )
+    assert config.vmcp.enabled is True
+    assert config.feilong.enabled is False
+    with pytest.raises(ConfigError, match="30 seconds"):
+        load_config(
+            _args(
+                feilong_url="https://feilong.example",
+                feilong_admin_token="admin-token-value",
+                vmcp=True,
+                vmcp_interval=10,
+            ),
+            environ={},
+        )
+
+
 def test_example_config_loads() -> None:
     config = load_config(_args(config="examples/config.yaml"), environ={})
     assert config.feilong.url.startswith("https://")

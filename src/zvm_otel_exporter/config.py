@@ -55,6 +55,19 @@ class FeilongConfig:
     concurrency: int = 8
     max_guests: int = 500
     max_vswitches: int = 50
+    enabled: bool = True
+    per_guest_limit: int = 32
+
+
+@dataclass
+class VmcpConfig:
+    """Local CP queries. Disabled until an operator turns them on."""
+
+    enabled: bool = False
+    command: str = "vmcp"
+    interval: float = 60.0
+    timeout: float = 5.0
+    host_name: str = ""
 
 
 @dataclass
@@ -96,6 +109,7 @@ class Config:
     prometheus_enabled: bool = True
     otlp: OtlpConfig = field(default_factory=OtlpConfig)
     collectors: CollectorToggles = field(default_factory=CollectorToggles)
+    vmcp: VmcpConfig = field(default_factory=VmcpConfig)
     log_level: str = "INFO"
 
     def secrets(self) -> list[str]:
@@ -140,21 +154,22 @@ def load_config(args: Any = None, environ: Mapping[str, str] | None = None) -> C
 
 def validate(config: Config) -> None:
     errors: list[str] = []
-    url = config.feilong.url.strip()
-    if not url:
-        errors.append("Feilong URL is required")
-    else:
-        parts = urlsplit(url)
-        if parts.scheme not in {"http", "https"} or not parts.netloc:
-            errors.append("Feilong URL must be an absolute http or https URL")
-        if parts.username or parts.password:
-            errors.append("do not put credentials in the Feilong URL; set a token instead")
-    if config.feilong.auth not in {"token", "none"}:
-        errors.append("Feilong auth must be 'token' or 'none'")
-    if config.feilong.auth == "token" and not (
-        config.feilong.admin_token or config.feilong.auth_token
-    ):
-        errors.append("token auth requires feilong.admin_token or feilong.auth_token")
+    if config.feilong.enabled:
+        url = config.feilong.url.strip()
+        if not url:
+            errors.append("Feilong URL is required")
+        else:
+            parts = urlsplit(url)
+            if parts.scheme not in {"http", "https"} or not parts.netloc:
+                errors.append("Feilong URL must be an absolute http or https URL")
+            if parts.username or parts.password:
+                errors.append("do not put credentials in the Feilong URL; set a token instead")
+        if config.feilong.auth not in {"token", "none"}:
+            errors.append("Feilong auth must be 'token' or 'none'")
+        if config.feilong.auth == "token" and not (
+            config.feilong.admin_token or config.feilong.auth_token
+        ):
+            errors.append("token auth requires feilong.admin_token or feilong.auth_token")
     if config.feilong.timeout <= 0:
         errors.append("Feilong timeout must be positive")
     if config.feilong.batch_size < 1:
@@ -163,10 +178,20 @@ def validate(config: Config) -> None:
         errors.append("Feilong concurrency must be at least 1")
     if config.feilong.max_guests < 1:
         errors.append("Feilong max_guests must be at least 1")
+    if config.feilong.per_guest_limit < 0:
+        errors.append("Feilong per_guest_limit must be zero or positive")
     if config.feilong.ca_file and not Path(config.feilong.ca_file).is_file():
         errors.append(f"CA file not found: {config.feilong.ca_file}")
     if config.scrape_interval < 1:
         errors.append("scrape interval must be at least 1 second")
+    if config.vmcp.interval < 30:
+        errors.append("vmcp interval must be at least 30 seconds")
+    if not 0 < config.vmcp.timeout <= 10:
+        errors.append("vmcp timeout must be greater than 0 and at most 10 seconds")
+    if _unsafe_command(config.vmcp.command):
+        errors.append("vmcp command must be an executable path without shell syntax")
+    if len(config.vmcp.host_name) > 64:
+        errors.append("vmcp host_name must be at most 64 characters")
     if not (1 <= config.server.port <= 65535):
         errors.append("listen port must be between 1 and 65535")
     if not config.prometheus_enabled and not config.otlp.enabled:
@@ -181,10 +206,17 @@ def validate(config: Config) -> None:
     if config.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         errors.append("log level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
     enabled = [name for name in _COLLECTORS if getattr(config.collectors, name)]
-    if not enabled:
-        errors.append("at least one collector must be enabled")
+    feilong_active = config.feilong.enabled and bool(enabled)
+    if not feilong_active and not config.vmcp.enabled:
+        errors.append("enable a Feilong collector or the vmcp collector")
     if errors:
         raise ConfigError("; ".join(errors))
+
+
+def _unsafe_command(command: str) -> bool:
+    if not command.strip():
+        return True
+    return any(character in command for character in " \t;|&$`<>\n\r\\")
 
 
 def _apply_file(config: Config, path: Path) -> Config:
@@ -200,7 +232,16 @@ def _apply_file(config: Config, path: Path) -> Config:
         raise ConfigError("config file must be a mapping")
     _reject_unknown(
         loaded,
-        {"feilong", "server", "scrape_interval", "exporters", "otlp", "collectors", "log_level"},
+        {
+            "feilong",
+            "server",
+            "scrape_interval",
+            "exporters",
+            "otlp",
+            "collectors",
+            "vmcp",
+            "log_level",
+        },
         "config",
     )
     feilong = dict(config.feilong.__dict__)
@@ -222,6 +263,8 @@ def _apply_file(config: Config, path: Path) -> Config:
                 "concurrency",
                 "max_guests",
                 "max_vswitches",
+                "enabled",
+                "per_guest_limit",
             },
             "feilong",
         )
@@ -238,6 +281,8 @@ def _apply_file(config: Config, path: Path) -> Config:
             "concurrency",
             "max_guests",
             "max_vswitches",
+            "enabled",
+            "per_guest_limit",
         ):
             if key in raw and raw[key] is not None:
                 feilong[key] = raw[key]
@@ -275,6 +320,7 @@ def _apply_file(config: Config, path: Path) -> Config:
     scrape = config.scrape_interval
     if "scrape_interval" in loaded and loaded["scrape_interval"] is not None:
         scrape = float(loaded["scrape_interval"])
+    vmcp = _vmcp_from_mapping(loaded.get("vmcp"), config.vmcp)
     log_level = str(loaded.get("log_level", config.log_level))
     return Config(
         feilong=FeilongConfig(**_coerce_feilong(feilong)),
@@ -290,7 +336,26 @@ def _apply_file(config: Config, path: Path) -> Config:
             timeout=float(otlp["timeout"]),
         ),
         collectors=CollectorToggles(**{key: bool(collectors[key]) for key in _COLLECTORS}),
+        vmcp=vmcp,
         log_level=log_level.upper(),
+    )
+
+
+def _vmcp_from_mapping(raw: object, current: VmcpConfig) -> VmcpConfig:
+    if raw is None:
+        return current
+    parsed = _mapping(raw, "vmcp")
+    _reject_unknown(parsed, {"enabled", "command", "interval", "timeout", "host_name"}, "vmcp")
+    values = dict(current.__dict__)
+    for key in ("enabled", "command", "interval", "timeout", "host_name"):
+        if key in parsed and parsed[key] is not None:
+            values[key] = parsed[key]
+    return VmcpConfig(
+        enabled=bool(values["enabled"]),
+        command=str(values["command"] or "vmcp"),
+        interval=float(values["interval"]),
+        timeout=float(values["timeout"]),
+        host_name=str(values["host_name"] or ""),
     )
 
 
@@ -325,11 +390,33 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
         ("ZVM_EXPORTER_FEILONG_CONCURRENCY", "concurrency"),
         ("ZVM_EXPORTER_FEILONG_MAX_GUESTS", "max_guests"),
         ("ZVM_EXPORTER_FEILONG_MAX_VSWITCHES", "max_vswitches"),
+        ("ZVM_EXPORTER_FEILONG_PER_GUEST_LIMIT", "per_guest_limit"),
     ):
         if env_name in env:
             updates[field_name] = int(env[env_name])
+    if "ZVM_EXPORTER_FEILONG_ENABLED" in env:
+        updates["enabled"] = _bool_value(
+            env["ZVM_EXPORTER_FEILONG_ENABLED"], "ZVM_EXPORTER_FEILONG_ENABLED"
+        )
     if updates:
         feilong = replace(feilong, **updates)
+
+    vmcp = config.vmcp
+    vmcp_updates: dict[str, Any] = {}
+    if "ZVM_EXPORTER_VMCP_ENABLED" in env:
+        vmcp_updates["enabled"] = _bool_value(
+            env["ZVM_EXPORTER_VMCP_ENABLED"], "ZVM_EXPORTER_VMCP_ENABLED"
+        )
+    if "ZVM_EXPORTER_VMCP_COMMAND" in env:
+        vmcp_updates["command"] = env["ZVM_EXPORTER_VMCP_COMMAND"]
+    if "ZVM_EXPORTER_VMCP_INTERVAL" in env:
+        vmcp_updates["interval"] = float(env["ZVM_EXPORTER_VMCP_INTERVAL"])
+    if "ZVM_EXPORTER_VMCP_TIMEOUT" in env:
+        vmcp_updates["timeout"] = float(env["ZVM_EXPORTER_VMCP_TIMEOUT"])
+    if "ZVM_EXPORTER_VMCP_HOST_NAME" in env:
+        vmcp_updates["host_name"] = env["ZVM_EXPORTER_VMCP_HOST_NAME"]
+    if vmcp_updates:
+        vmcp = replace(vmcp, **vmcp_updates)
 
     server = config.server
     server_updates: dict[str, Any] = {}
@@ -388,6 +475,7 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
         prometheus_enabled=prometheus,
         otlp=otlp,
         collectors=collectors,
+        vmcp=vmcp,
         log_level=log_level,
     )
 
@@ -452,6 +540,22 @@ def _apply_args(config: Config, args: Any) -> Config:
     log_level = config.log_level
     if _present(args, "log_level"):
         log_level = str(args.log_level).upper()
+    vmcp_updates: dict[str, Any] = {}
+    if getattr(args, "vmcp", None) is not None:
+        vmcp_updates["enabled"] = bool(args.vmcp)
+    if _present(args, "vmcp_command"):
+        vmcp_updates["command"] = args.vmcp_command
+    if _present(args, "vmcp_interval"):
+        vmcp_updates["interval"] = float(args.vmcp_interval)
+    if _present(args, "vmcp_timeout"):
+        vmcp_updates["timeout"] = float(args.vmcp_timeout)
+    if _present(args, "vmcp_host_name"):
+        vmcp_updates["host_name"] = args.vmcp_host_name
+    vmcp = replace(config.vmcp, **vmcp_updates) if vmcp_updates else config.vmcp
+    if _present(args, "per_guest_limit"):
+        feilong = replace(feilong, per_guest_limit=int(args.per_guest_limit))
+    if getattr(args, "feilong_enabled", None) is not None:
+        feilong = replace(feilong, enabled=bool(args.feilong_enabled))
     return Config(
         feilong=feilong,
         server=server,
@@ -459,6 +563,7 @@ def _apply_args(config: Config, args: Any) -> Config:
         prometheus_enabled=prometheus,
         otlp=otlp,
         collectors=config.collectors,
+        vmcp=vmcp,
         log_level=log_level,
     )
 
@@ -531,6 +636,8 @@ def _coerce_feilong(raw: dict[str, Any]) -> dict[str, Any]:
     raw["concurrency"] = int(raw.get("concurrency", 8))
     raw["max_guests"] = int(raw.get("max_guests", 500))
     raw["max_vswitches"] = int(raw.get("max_vswitches", 50))
+    raw["enabled"] = bool(raw.get("enabled", True))
+    raw["per_guest_limit"] = int(raw.get("per_guest_limit", 32))
     return raw
 
 

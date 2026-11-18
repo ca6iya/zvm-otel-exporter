@@ -44,7 +44,7 @@ Predecessor = "https://github.com/zvmexporter/zvm_exporter"
 where = ["src"]
 
 [tool.setuptools.package-data]
-zvm_otel_exporter = ["fixtures/*.json"]
+zvm_otel_exporter = ["fixtures/*.json", "fixtures/vmcp/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

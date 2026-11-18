@@ -26,7 +26,7 @@ flowchart LR
   Collector --> Graf
 ```
 
-One process scrapes Feilong on an interval and keeps the latest snapshot in memory.
+One process scrapes on an interval and keeps the latest snapshot in memory. `/metrics` renders that snapshot. A scrape never starts a new Feilong or CP collection of its own. An optional `vmcp` collector, off by default, adds paging, spool, and system CPU from the local Linux on Z guest.
 
 * The Prometheus registry renders that snapshot when something scrapes `/metrics`. The default listen port is 9110, matching the old exporter.
 * When OTLP is enabled, observable instruments read the same snapshot and a periodic reader exports them.
@@ -126,6 +126,13 @@ Precedence is the YAML file, then environment variables, then CLI flags. A later
 | OTLP headers | `--otlp-header Key=Value` | `ZVM_EXPORTER_OTLP_HEADERS` | none |
 | OTLP insecure | `--otlp-insecure` | `ZVM_EXPORTER_OTLP_INSECURE` | `false` |
 | Log level | `--log-level` | `ZVM_EXPORTER_LOG_LEVEL` | `INFO` |
+| Feilong collection | `--feilong` / `--no-feilong` | `ZVM_EXPORTER_FEILONG_ENABLED` | `true` |
+| Per-guest call cap | `--per-guest-limit` | `ZVM_EXPORTER_FEILONG_PER_GUEST_LIMIT` | `32` |
+| vmcp collector | `--vmcp` / `--no-vmcp` | `ZVM_EXPORTER_VMCP_ENABLED` | `false` |
+| vmcp program | `--vmcp-command` | `ZVM_EXPORTER_VMCP_COMMAND` | `vmcp` |
+| vmcp interval | `--vmcp-interval` | `ZVM_EXPORTER_VMCP_INTERVAL` | 60 seconds, minimum 30 |
+| vmcp timeout | `--vmcp-timeout` | `ZVM_EXPORTER_VMCP_TIMEOUT` | 5 seconds, maximum 10 |
+| vmcp host label | `--vmcp-host-name` | `ZVM_EXPORTER_VMCP_HOST_NAME` | Feilong host name, else `local` |
 
 `ZVM_EXPORTER_OTLP_HEADERS` is either a JSON object or comma-separated `Key=Value` pairs. Use JSON when a value contains a comma. Each collector can be toggled with `ZVM_EXPORTER_COLLECTOR_<NAME>`, for example `ZVM_EXPORTER_COLLECTOR_PCIF=true`.
 
@@ -229,22 +236,92 @@ NIC series also carry `network.interface.name` (the virtual device) and `zvm.vsw
 | `zvm.exporter.scrape.stale` | gauge | 1 when host collection failed and older z/VM series are still being served. |
 | `zvm.exporter.scrape.last_success` | gauge | Unix time of the last scrape that collected host information. |
 
+### Paging, spool, and system CPU (`vmcp`, off by default)
+
+These series are the parity path for the 2017 paging, spool, and system CPU metrics. They come from three local CP commands, not from Feilong. See Performance impact for the command budget and privilege classes.
+
+| Metric | Type | Source | Meaning |
+| --- | --- | --- | --- |
+| `zvm.paging.allocated` | gauge | `QUERY ALLOC PAGE` | Pages allocated to paging. Parity with `zvm_page_allocated_total`. |
+| `zvm.paging.used` | gauge | `QUERY ALLOC PAGE` | Pages in use. Parity with `zvm_page_used_total`. |
+| `zvm.paging.utilization` | gauge | allocated and used | Used divided by allocated, from 0 to 1. |
+| `zvm.paging.rate` | gauge | `INDICATE LOAD` | Instantaneous `PAGING-n/SEC`, in pages per second. |
+| `zvm.spool.allocated` | gauge | `QUERY ALLOC SPOOL` | Pages allocated to spool. Parity with `zvm_spool_allocated_total`. |
+| `zvm.spool.used` | gauge | `QUERY ALLOC SPOOL` | Pages in use. Parity with `zvm_spool_used_total`. |
+| `zvm.spool.utilization` | gauge | allocated and used | Used divided by allocated, from 0 to 1. |
+| `zvm.system.cpu.utilization` | gauge | `INDICATE LOAD` `AVGPROC` | System CPU utilization from 0 to 1. Parity with `zvm_system_cpu_in_use`. |
+| `zvm.system.cpu.count` | gauge | the count after `AVGPROC` | Processors `INDICATE LOAD` reports. This is not Feilong's `zvm.host.cpu.count`. |
+| `zvm.vmcp.up` | gauge | local | 1 when the last pass ran all three commands and every response parsed. |
+| `zvm.vmcp.cache_age` | gauge | local | Seconds since that pass. A scrape inside the interval does not run CP. |
+| `zvm.vmcp.command_duration` | gauge | local | Seconds spent in the last pass. |
+| `zvm.vmcp.consecutive_failures` | gauge | local | Failure streak. The next attempt waits longer as this grows. |
+
+There is one series per metric. Volume rows and per-processor `PROC` lines are not labels.
+
+## Performance impact
+
+A Prometheus scrape, including many concurrent scrapes, reads the last snapshot. It does not call Feilong and it does not run CP. One background loop collects on `scrape_interval` (default 60 seconds).
+
+### Feilong
+
+A normal scrape is a small fixed set of HTTP calls plus batched guest stats: version, SMAPI health, host, one disk-pool call per configured pool, two guest lists, and `GET /guests/stats` plus `GET /guests/interfacestats` in batches of 25. `max_guests` (default 500) caps that batch list.
+
+Power state and minidisks are the heavy calls: one HTTP request per guest. Minidisks are off by default. Power state stays on, but `feilong.per_guest_limit` (default 32) caps how many guests are queried, the set is sorted so it does not flap, and the thread pool never exceeds 16 workers. Set `collectors.power_state: false` when the batched guest stats are enough. A scrape interval below 30 seconds logs a warning because it multiplies this load. Guest CPU and memory still come from the batched stats call either way.
+
+### vmcp
+
+The collector is off by default. Turn it on only on a Linux on Z guest that is allowed to issue the commands below. When it is on, one pass runs exactly these three commands, sequentially, and then caches the result:
+
+1. `QUERY ALLOC PAGE`
+2. `QUERY ALLOC SPOOL`
+3. `INDICATE LOAD`
+
+The pass runs at most once per `vmcp.interval` (default 60 seconds). Values below 30 seconds are rejected. Each command has its own hard subprocess timeout (default 5 seconds, maximum 10). The captured text is cut to the last 64 KiB before it is parsed, so a long volume list cannot grow the process. There is no per-guest CP command, no extra thread, no queue, and no CP Monitor or MONWRITE. The command list is fixed; the config cannot pass an arbitrary CP command.
+
+If a command is missing, times out, is rejected, or cannot be parsed, the next pass waits `interval * 2^n`, capped at 15 minutes. A clean pass resets that wait to the normal interval. `zvm.vmcp.cache_age` shows how long the current numbers have been cached.
+
+Worst case on a healthy system: three short CP queries a minute, each normally well under a second. The timeout budget is 15 seconds and is spent only if `vmcp` hangs. That is the whole z/VM cost of this collector.
+
+s390 hypfs is not used. `INDICATE LOAD` already returns system CPU utilization in one class G command. hypfs reads DIAG 204 through debugfs, which needs another mount and a heavier diagnose, so it is not the lighter source.
+
+### Privilege classes
+
+`vmcp` comes from s390-tools and talks to `/dev/vmcp`. The guest has to be running under z/VM.
+
+| Command | Privilege class | What it is for |
+| --- | --- | --- |
+| `QUERY ALLOC PAGE` | D (Spooling Operator) | Paging totals. Class D is what the CP reference and DirMaint require. |
+| `QUERY ALLOC SPOOL` | D | Spool totals. |
+| `INDICATE LOAD` | G (General User) | `AVGPROC` and the paging rate. |
+
+IBM's performance snapshot tells the operator to log on with class E because that procedure also uses other analyst commands. Class E does not by itself authorize `QUERY ALLOC` unless the installation has redefined command classes. Grant class D and class G, and confirm both on the system. An unauthorized command returns an HCP message. The exporter records the failure, serves the last good samples, and does not retry until the backoff expires.
+
+### Output assumptions to verify on a real system
+
+The fixtures are the examples in the z/VM 7.3 performance snapshot, plus an older `INDICATE LOAD` layout. Confirm these on the system you run:
+
+* Volume rows are `volid rdev start end total in-use high percent`, with an optional note such as `DUMP`.
+* When every volume row is an unscaled integer, those rows are summed. On the published examples that sum matches "in use" exactly and is tighter than `SUMMARY`, because CP rounds a large `SUMMARY` with `K` = 1024, `M` = 1024 squared, and `G` = 1024 cubed.
+* If the volume list is missing, or a row is already scaled, `SUMMARY`'s first two numbers are allocated and used. `USABLE` is ignored. It can exclude drained or dump space.
+* `AVGPROC-nnn% cc` is the system utilization and the processor count. `PROC` lines are not exported.
+* `PAGING-nnnn/SEC` is an instantaneous rate, not a counter.
+
 ## Gaps relative to the 2017 exporter
 
-Feilong's read API does not expose everything xCAT's SMAPI queries did. These are omitted on purpose. The exporter does not invent zeros for them.
+Feilong's read API does not expose everything xCAT's SMAPI queries did. The exporter does not invent zeros for a source it cannot see. Paging, spool, and the system CPU ratio are restored only by the optional vmcp collector.
 
 | 2017 metric | Status |
 | --- | --- |
-| `zvm_system_cpu_count` | Replaced by `zvm.host.cpu.count`. |
-| `zvm_system_cpu_in_use` | Not available. Feilong has no system CPU utilization ratio. Use the rate of `zvm.guest.cpu.time`, and `zvm.host.cpu.used` as a CPU count. |
+| `zvm_system_cpu_count` | Replaced by `zvm.host.cpu.count` from Feilong, and by `zvm.system.cpu.count` from `INDICATE LOAD` when vmcp is enabled. |
 | `zvm_system_memory_total`, `zvm_system_memory_in_use` | Replaced by `zvm.host.memory.limit` and `zvm.host.memory.usage`, in bytes. |
 | `zvm_disk_space_total`, `zvm_disk_space_free`, `zvm_disk_status` | Partial. Pool totals are in bytes after Feilong's whole-gigabyte rounding. Per-volume free space is in directory-manager units, not bytes, and there is no online/offline status bit. |
-| `zvm_page_allocated_total`, `zvm_page_used_total` | No paging API. Page space (`QUERY ALLOC PAGE`) is not exposed. |
-| `zvm_spool_allocated_total`, `zvm_spool_used_total` | No spool API. Spool space (`QUERY ALLOC SPOOL`) is not exposed. |
+| `zvm_page_allocated_total`, `zvm_page_used_total` | Feilong still has no paging API. `zvm.paging.allocated` and `zvm.paging.used` restore the totals when the vmcp collector is enabled. |
+| `zvm_spool_allocated_total`, `zvm_spool_used_total` | Feilong still has no spool API. `zvm.spool.allocated` and `zvm.spool.used` restore the totals when the vmcp collector is enabled. |
+| `zvm_system_cpu_in_use` | Not available from Feilong. `zvm.system.cpu.utilization` is `INDICATE LOAD` `AVGPROC` when vmcp is enabled. `zvm.host.cpu.used` remains a CPU count. |
 
 Other limits found while reading Feilong 1.6:
 
-* There is no batch power-state route, so power state costs one request per guest.
+* There is no batch power-state route. Power state is capped by `feilong.per_guest_limit` (default 32) and can be turned off.
 * `GET /host/pcif` returns an error when the host has no PCI functions, instead of an empty list. Leave that collector off unless you know the LPAR has them.
 * `GET /guests/stats` is the batched CPU and memory source. `total_memory`, `available_memory`, and `free_memory` have no unit in the specification. This exporter treats the published sample as kilobytes.
 * Guest minidisk size is configured capacity. Feilong does not report bytes used inside a minidisk.

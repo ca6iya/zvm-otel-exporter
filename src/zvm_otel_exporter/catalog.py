@@ -388,6 +388,89 @@ CATALOG: dict[str, MetricDef] = {
             "Unix timestamp of the last scrape that collected host information. 0 if none yet.",
             "s",
         ),
+        _g(
+            "zvm.paging.allocated",
+            "Paging pages allocated on the z/VM system (QUERY ALLOC PAGE). "
+            "Parity with the 2017 zvm_page_allocated_total series.",
+            "{page}",
+            _HOST,
+        ),
+        _g(
+            "zvm.paging.used",
+            "Paging pages in use (QUERY ALLOC PAGE). "
+            "Parity with the 2017 zvm_page_used_total series.",
+            "{page}",
+            _HOST,
+        ),
+        _g(
+            "zvm.paging.utilization",
+            "Paging pages in use divided by paging pages allocated.",
+            "1",
+            _HOST,
+        ),
+        _g(
+            "zvm.paging.rate",
+            "Instantaneous paging rate from INDICATE LOAD (PAGING-n/SEC), in pages per second.",
+            "{page}/s",
+            _HOST,
+        ),
+        _g(
+            "zvm.spool.allocated",
+            "Spool pages allocated on the z/VM system (QUERY ALLOC SPOOL). "
+            "Parity with the 2017 zvm_spool_allocated_total series.",
+            "{page}",
+            _HOST,
+        ),
+        _g(
+            "zvm.spool.used",
+            "Spool pages in use (QUERY ALLOC SPOOL). "
+            "Parity with the 2017 zvm_spool_used_total series.",
+            "{page}",
+            _HOST,
+        ),
+        _g(
+            "zvm.spool.utilization",
+            "Spool pages in use divided by spool pages allocated.",
+            "1",
+            _HOST,
+        ),
+        _g(
+            "zvm.system.cpu.utilization",
+            "System CPU utilization from INDICATE LOAD AVGPROC, as a ratio from 0 to 1. "
+            "Parity with the 2017 zvm_system_cpu_in_use series.",
+            "1",
+            _HOST,
+        ),
+        _g(
+            "zvm.system.cpu.count",
+            "Processor count reported beside AVGPROC on INDICATE LOAD.",
+            "{cpu}",
+            _HOST,
+        ),
+        _g(
+            "zvm.vmcp.up",
+            "1 when the last vmcp pass ran all three CP commands successfully.",
+            "1",
+            _HOST,
+        ),
+        _g(
+            "zvm.vmcp.cache_age",
+            "Seconds since the last vmcp command pass. Scrapes within the interval do not run CP.",
+            "s",
+            _HOST,
+        ),
+        _g(
+            "zvm.vmcp.command_duration",
+            "Seconds spent in the last vmcp command pass, including timeouts.",
+            "s",
+            _HOST,
+        ),
+        _g(
+            "zvm.vmcp.consecutive_failures",
+            "Consecutive vmcp passes that had a command or parse failure. Resets after a clean pass.",
+            "1",
+            _HOST,
+        ),
     )
 }
 
@@ -410,6 +493,8 @@ _UNIT_SUFFIX = {
     "{sample}": "samples",
     "{adapter}": "adapters",
     "{device}": "devices",
+    "{page}": "pages",
+    "{page}/s": "pages_per_second",
 }
 
 

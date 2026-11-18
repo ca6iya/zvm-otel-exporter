@@ -1,0 +1,336 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+
+"""Local z/VM paging, spool, and system CPU via the ``vmcp`` command.
+
+Three CP commands run, sequentially, at most once per ``vmcp.interval``:
+
+* ``QUERY ALLOC PAGE`` (privilege class D)
+* ``QUERY ALLOC SPOOL`` (privilege class D)
+* ``INDICATE LOAD`` (privilege class G)
+
+Nothing else is issued. There is no per-guest fan-out and no CP Monitor.
+Prometheus scrapes read the cached samples and do not start a new command.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import subprocess
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from zvm_otel_exporter.config import VmcpConfig
+from zvm_otel_exporter.models import Sample
+
+log = logging.getLogger(__name__)
+
+_MAX_OUTPUT = 64 * 1024
+_BACKOFF_CAP = 900.0
+_PAGE_COMMAND = ("QUERY", "ALLOC", "PAGE")
+_SPOOL_COMMAND = ("QUERY", "ALLOC", "SPOOL")
+_LOAD_COMMAND = ("INDICATE", "LOAD")
+_COMMANDS = (
+    ("page", _PAGE_COMMAND),
+    ("spool", _SPOOL_COMMAND),
+    ("load", _LOAD_COMMAND),
+)
+
+_SCALED = re.compile(r"(\d+)([KMG])?", re.IGNORECASE)
+_VOLID = re.compile(r"[A-Z0-9]{1,6}\Z", re.IGNORECASE)
+_RDEV = re.compile(r"[0-9A-F]{1,4}\Z", re.IGNORECASE)
+_AVGPROC = re.compile(
+    r"AVGPROC\s*-\s*(\d+(?:\.\d+)?)\s*%(?:\s+(\d+))?",
+    re.IGNORECASE,
+)
+_PAGING_RATE = re.compile(r"PAGING\s*-\s*(\d+)\s*/\s*SEC", re.IGNORECASE)
+_UNAUTHORIZED = re.compile(
+    r"unauthorized|not authorized|privilege class|unknown cp command|hcp\w*001e",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    stdout: str
+    returncode: int = 0
+    timed_out: bool = False
+    not_found: bool = False
+
+    @property
+    def failed(self) -> bool:
+        return self.not_found or self.timed_out or self.returncode != 0
+
+
+@dataclass(frozen=True)
+class AllocStats:
+    allocated: int
+    used: int
+
+
+@dataclass(frozen=True)
+class LoadStats:
+    utilization: float
+    cpu_count: int | None
+    paging_rate: int | None
+
+
+@dataclass(frozen=True)
+class VmcpReading:
+    samples: tuple[Sample, ...]
+    ok: bool
+
+
+class SubprocessRunner:
+    """Run ``vmcp`` with a hard timeout and a capped capture buffer."""
+
+    def __init__(self, command: str) -> None:
+        self._command = command
+
+    def run(self, args: tuple[str, ...], timeout: float) -> CommandResult:
+        try:
+            completed = subprocess.run(
+                [self._command, *args],
+                timeout=timeout,
+                capture_output=True,
+                check=False,
+                text=True,
+                errors="replace",
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+            return CommandResult(stdout=_tail(stdout), returncode=124, timed_out=True)
+        except FileNotFoundError:
+            return CommandResult(stdout="", not_found=True, returncode=127)
+        except OSError:
+            return CommandResult(stdout="", returncode=126)
+        return CommandResult(stdout=_tail(completed.stdout or ""), returncode=completed.returncode)
+
+
+class VmcpSource:
+    """Cached paging, spool, and system CPU samples."""
+
+    def __init__(
+        self,
+        config: VmcpConfig,
+        runner: SubprocessRunner | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        self._config = config
+        self._runner = runner or SubprocessRunner(config.command)
+        self._clock = clock or time.monotonic
+        self._lock = threading.Lock()
+        self._next_run = 0.0
+        self._last_run = 0.0
+        self._duration = 0.0
+        self._failures = 0
+        self._ok = False
+        self._page: AllocStats | None = None
+        self._spool: AllocStats | None = None
+        self._load: LoadStats | None = None
+
+    def collect(self, host: str) -> VmcpReading:
+        now = self._clock()
+        if not self._lock.acquire(blocking=False):
+            return self._reading(host, now)
+        try:
+            if now >= self._next_run:
+                self._refresh(now)
+            return self._reading(host, now)
+        finally:
+            self._lock.release()
+
+    def _refresh(self, now: float) -> None:
+        started = self._clock()
+        texts: dict[str, str] = {}
+        failed = False
+        for name, args in _COMMANDS:
+            result = self._runner.run(args, self._config.timeout)
+            reason = _failure_reason(result)
+            if reason is None and _unauthorized(result.stdout):
+                reason = "unauthorized"
+            if reason is not None:
+                failed = True
+                texts[name] = ""
+                log.warning("vmcp %s failed: %s", " ".join(args), reason)
+                continue
+            texts[name] = result.stdout
+        self._duration = max(0.0, self._clock() - started)
+        self._page = parse_alloc(texts.get("page", ""))
+        self._spool = parse_alloc(texts.get("spool", ""))
+        self._load = parse_load(texts.get("load", ""))
+        if self._page is None and texts.get("page"):
+            failed = True
+            log.warning("vmcp QUERY ALLOC PAGE returned no paging totals")
+        if self._spool is None and texts.get("spool"):
+            failed = True
+            log.warning("vmcp QUERY ALLOC SPOOL returned no spool totals")
+        if self._load is None and texts.get("load"):
+            failed = True
+            log.warning("vmcp INDICATE LOAD returned no AVGPROC value")
+        if self._page is None or self._spool is None or self._load is None:
+            failed = True
+        self._last_run = now
+        if failed:
+            self._failures += 1
+            delay = min(self._config.interval * (2**self._failures), _BACKOFF_CAP)
+            self._next_run = now + max(delay, self._config.interval)
+            self._ok = False
+            return
+        self._failures = 0
+        self._next_run = now + self._config.interval
+        self._ok = True
+
+    def _reading(self, host: str, now: float) -> VmcpReading:
+        label = host or self._config.host_name or "local"
+        attributes = {"zvm.host.name": label}
+        samples: list[Sample] = []
+        if self._page is not None:
+            samples.extend(_alloc_samples("zvm.paging", self._page, attributes))
+        if self._spool is not None:
+            samples.extend(_alloc_samples("zvm.spool", self._spool, attributes))
+        if self._load is not None:
+            samples.append(Sample("zvm.system.cpu.utilization", self._load.utilization, attributes))
+            if self._load.cpu_count is not None:
+                samples.append(
+                    Sample("zvm.system.cpu.count", float(self._load.cpu_count), attributes)
+                )
+            if self._load.paging_rate is not None:
+                samples.append(Sample("zvm.paging.rate", float(self._load.paging_rate), attributes))
+        age = 0.0 if self._last_run <= 0 else max(0.0, now - self._last_run)
+        samples.extend(
+            (
+                Sample("zvm.vmcp.up", 1.0 if self._ok else 0.0, attributes),
+                Sample("zvm.vmcp.cache_age", age, attributes),
+                Sample("zvm.vmcp.command_duration", self._duration, attributes),
+                Sample("zvm.vmcp.consecutive_failures", float(self._failures), attributes),
+            )
+        )
+        return VmcpReading(tuple(samples), self._ok)
+
+
+def parse_alloc(text: str) -> AllocStats | None:
+    """Parse ``QUERY ALLOC PAGE`` or ``QUERY ALLOC SPOOL``.
+
+    Volume rows are preferred when every one of them has an unscaled integer.
+    CP's SUMMARY line rounds large totals to Ki-pages (K = 1024), so the row
+    sum matches the 2017 exporter's page counts more closely. SUMMARY is the
+    fallback when the volume list is absent or already scaled.
+    """
+
+    if not text.strip() or _unauthorized(text):
+        return None
+    allocated = 0
+    used = 0
+    rows = 0
+    scaled_row = False
+    summary: tuple[int, int] | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.lower().startswith("ready"):
+            continue
+        if line.upper().startswith("SUMMARY"):
+            parsed = _summary_pair(line)
+            if parsed is not None:
+                summary = parsed
+            continue
+        if line.upper().startswith("USABLE"):
+            continue
+        row = _volume_row(line)
+        if row is None:
+            continue
+        rows += 1
+        allocated += row[0]
+        used += row[1]
+        scaled_row = scaled_row or row[2]
+    if rows and not scaled_row:
+        return AllocStats(allocated, used)
+    if summary is not None:
+        return AllocStats(*summary)
+    if rows:
+        return AllocStats(allocated, used)
+    return None
+
+
+def parse_load(text: str) -> LoadStats | None:
+    """Parse ``INDICATE LOAD``. Per-processor lines are ignored."""
+
+    if not text.strip() or _unauthorized(text):
+        return None
+    avg = _AVGPROC.search(text)
+    if avg is None:
+        return None
+    percent = float(avg.group(1))
+    if percent < 0 or percent > 100:
+        return None
+    count = int(avg.group(2)) if avg.group(2) else None
+    rate_match = _PAGING_RATE.search(text)
+    rate = int(rate_match.group(1)) if rate_match else None
+    return LoadStats(percent / 100.0, count, rate)
+
+
+def _alloc_samples(prefix: str, stats: AllocStats, attributes: dict[str, str]) -> list[Sample]:
+    samples = [
+        Sample(f"{prefix}.allocated", float(stats.allocated), attributes),
+        Sample(f"{prefix}.used", float(stats.used), attributes),
+    ]
+    if stats.allocated > 0:
+        ratio = min(1.0, stats.used / stats.allocated)
+        samples.append(Sample(f"{prefix}.utilization", ratio, attributes))
+    return samples
+
+
+def _volume_row(line: str) -> tuple[int, int, bool] | None:
+    parts = line.split()
+    if len(parts) < 7 or not _VOLID.match(parts[0]) or not _RDEV.match(parts[1]):
+        return None
+    total = _scaled_token(parts[4])
+    used = _scaled_token(parts[5])
+    if total is None or used is None:
+        return None
+    return total[0], used[0], total[1] or used[1]
+
+
+def _summary_pair(line: str) -> tuple[int, int] | None:
+    without_percent = re.sub(r"\d+(?:\.\d+)?\s*%", " ", line)
+    numbers: list[int] = []
+    for match in _SCALED.finditer(without_percent):
+        numbers.append(_apply_scale(int(match.group(1)), match.group(2)))
+    if len(numbers) < 2:
+        return None
+    return numbers[0], numbers[1]
+
+
+def _scaled_token(token: str) -> tuple[int, bool] | None:
+    match = _SCALED.fullmatch(token)
+    if match is None:
+        return None
+    return _apply_scale(int(match.group(1)), match.group(2)), bool(match.group(2))
+
+
+def _apply_scale(value: int, suffix: str | None) -> int:
+    power = {None: 0, "": 0, "K": 1, "M": 2, "G": 3}[(suffix or "").upper()]
+    return value * (1024**power)
+
+
+def _unauthorized(text: str) -> bool:
+    return _UNAUTHORIZED.search(text) is not None
+
+
+def _failure_reason(result: CommandResult) -> str | None:
+    if result.not_found:
+        return "vmcp program not found"
+    if result.timed_out:
+        return "timeout"
+    if result.returncode != 0:
+        return f"exit {result.returncode}"
+    return None
+
+
+def _tail(text: str) -> str:
+    if len(text) <= _MAX_OUTPUT:
+        return text
+    return text[-_MAX_OUTPUT:]
