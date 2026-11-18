@@ -2,12 +2,12 @@
 
 ## Supported versions
 
-There is no tagged release yet. Security fixes apply to the `main` branch. After the first release, only the latest minor release of 0.1.x is supported until a newer minor line is announced in [CHANGELOG.md](CHANGELOG.md).
+Security fixes apply to the latest 0.1.x release and to the `main` branch. A newer minor line, when one exists, will be announced in [CHANGELOG.md](CHANGELOG.md).
 
 | Version | Supported |
 | --- | --- |
+| 0.1.x | yes |
 | `main` | yes |
-| tagged releases | none yet |
 
 ## Reporting a vulnerability
 
