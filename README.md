@@ -452,7 +452,7 @@ ruff format --check .
 pytest
 ```
 
-The mock server and fixture live in `src/zvm_otel_exporter/mock.py` and `src/zvm_otel_exporter/fixtures/mock_feilong.json`. CI runs Ruff and pytest on Python 3.11 and 3.12. See [CONTRIBUTING.md](CONTRIBUTING.md).
+The mock server and fixture live in `src/zvm_otel_exporter/mock.py` and `src/zvm_otel_exporter/fixtures/mock_feilong.json`. CI runs Ruff and pytest on Python 3.11 and 3.12. Alert rules are checked with promtool. See [Testing the alert rules](docs/dashboards.md#testing-the-alert-rules) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Suggested next steps
 

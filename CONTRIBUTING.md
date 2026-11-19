@@ -72,7 +72,9 @@ collector without updating the performance limits in the README.
 
 ## Pull requests
 
-GitHub Actions runs Ruff and pytest on Python 3.11 and 3.12, and checks
-`Signed-off-by` on each commit. Please keep those workflows green. Describe how
-you tested the change. Live z/VM results are welcome and should name the z/VM
-and Feilong versions you used.
+GitHub Actions runs Ruff and pytest on Python 3.11 and 3.12, checks alert
+rules with promtool, and checks `Signed-off-by` on each commit. Please keep
+those workflows green. How to run the alert tests locally is in
+[Testing the alert rules](docs/dashboards.md#testing-the-alert-rules). Describe
+how you tested the change. Live z/VM results are welcome and should name the
+z/VM and Feilong versions you used.

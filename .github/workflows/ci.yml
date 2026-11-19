@@ -26,3 +26,12 @@ jobs:
           ruff format --check .
       - name: Test
         run: pytest
+
+  promtool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check and test alert rules
+        run: |
+          docker run --rm -v "$PWD":/w -w /w --entrypoint /bin/sh prom/prometheus:v3.16.0 -c \
+            'promtool check rules dashboards/grafana/alerts.yml && promtool test rules dashboards/grafana/alerts_test.yml'

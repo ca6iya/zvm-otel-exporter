@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `zvm.system.info` labels for the z/VM system, LPAR, and CPC. LPAR and CPC fields come from `/proc/sysinfo`. System and host names come from Feilong or an override. OTLP resource attributes use the same keys. `host.id` is not set.
 - Dashboard pack under `dashboards/` for Grafana and Dynatrace, with alert rules and `docs/dashboards.md`.
+- promtool unit tests for every Prometheus alert rule, run in CI with Prometheus 3.16.0.
 
 ### Fixed
 

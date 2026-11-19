@@ -89,6 +89,53 @@ JSON dashboard files have no SPDX line because JSON comments are not valid. The 
 
 Paging, spool, and memory overcommit alerts are warning only. They are not availability incidents. The 3x overcommit rule is still named `ZvmMemoryOvercommitCritical`, and its severity is warning.
 
+## Testing the alert rules
+
+`dashboards/grafana/alerts_test.yml` has a promtool case for every rule in `dashboards/grafana/alerts.yml`. Each rule has a firing input and a healthy input that expects `exp_alerts: []`. `ZvmExporterProcessDown` has a second firing input for `absent(zvm_exporter_up)`. CI runs both commands below with the image tag `prom/prometheus:v3.16.0`.
+
+```bash
+docker run --rm -v "$PWD":/w -w /w --entrypoint promtool prom/prometheus check rules dashboards/grafana/alerts.yml
+docker run --rm -v "$PWD":/w -w /w --entrypoint promtool prom/prometheus test rules dashboards/grafana/alerts_test.yml
+```
+
+The same commands with a pinned tag:
+
+```bash
+docker run --rm -v "$PWD":/w -w /w --entrypoint promtool prom/prometheus:v3.16.0 check rules dashboards/grafana/alerts.yml
+docker run --rm -v "$PWD":/w -w /w --entrypoint promtool prom/prometheus:v3.16.0 test rules dashboards/grafana/alerts_test.yml
+```
+
+Without Docker, download that release and run its `promtool`:
+
+```bash
+curl -fsSL -o /tmp/prometheus.tar.gz \
+  https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-amd64.tar.gz
+tar -xzf /tmp/prometheus.tar.gz -C /tmp prometheus-3.16.0.linux-amd64/promtool
+/tmp/prometheus-3.16.0.linux-amd64/promtool check rules dashboards/grafana/alerts.yml
+/tmp/prometheus-3.16.0.linux-amd64/promtool test rules dashboards/grafana/alerts_test.yml
+```
+
+`check rules` prints `SUCCESS: 18 rules found` when the rule file parses. `test rules` prints `SUCCESS` when every `exp_labels` and `exp_annotations` matches. A failure prints `FAILED` and then `exp` next to `got`.
+
+* A difference under `Labels` means a label from the input series, or `severity`, does not match `exp_labels`. promtool adds `alertname` itself. Do not put `alertname` in `exp_labels`.
+* A difference under `Annotations` means `summary` or `description` is not the exact string from `alerts.yml`.
+* `ZvmExporterProcessDown` is `up{job="zvm-otel-exporter"} == 0 or absent(zvm_exporter_up)`. If `up` is 0 and `zvm_exporter_up` is also missing, both sides match and two alerts fire. The `up == 0` test keeps a `zvm_exporter_up` series so `absent()` does not add a second alert. The absent test keeps `up` at 1 and omits `zvm_exporter_up`, so only the unlabeled absent alert fires.
+
+To add a test for a new rule, add two blocks to `alerts_test.yml`. One input stays past the threshold for longer than the rule's `for` duration, with `eval_time` after that duration, and copies `summary` and `description` exactly. `exp_labels` is `severity` plus any label the expression keeps (`instance`, `zvm_host_name`, and so on). The other input stays on the healthy side of the threshold and sets `exp_alerts: []`. `rule_files` is resolved relative to the test file, so it stays `- alerts.yml`.
+
+Optional live check. Point Prometheus at the rule file and at the exporter:
+
+```yaml
+rule_files:
+  - dashboards/grafana/alerts.yml
+scrape_configs:
+  - job_name: zvm-otel-exporter
+    static_configs:
+      - targets: ["127.0.0.1:9110"]
+```
+
+Start Prometheus, stop the exporter, and open `http://127.0.0.1:9090/alerts`. `ZvmExporterProcessDown` goes from inactive to pending, then to firing after 5 minutes. The job name in that file must stay `zvm-otel-exporter`, which is what the rule matches.
+
 ## Dynatrace
 
 Send OTLP metrics to `https://{env}.live.dynatrace.com/api/v2/otlp/v1/metrics` with an API token that has `metrics.ingest`. The exporter's OTel names are the metric keys (`zvm.system.cpu.utilization`, not the Prometheus underscore form). Resource attributes from process start use the same keys as `zvm.system.info`, including `host.name`, `host.arch`, `deployment.environment.name`, and `zvm.lpar.name`. `host.id` is not set.
