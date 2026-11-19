@@ -18,13 +18,36 @@ It has been tested against a fixture Feilong server. It has not yet been run aga
 
 ## System identity
 
-`zvm.system.info` is a gauge that is always 1. Its labels name the z/VM system and the hardware: `zvm_host_name`, `zvm_system_name`, `lpar`, `lpar_number`, CPC type, model, sequence, and plant, plus `zvm_site`, `deployment_environment`, `zvm_ssi_name`, and `host_arch`.
+`zvm.system.info` is a gauge that is always 1. The same attribute keys are on that metric and on the OTLP resource. Prometheus label names are those keys with each `.` replaced by `_`. `host.id` is not set. A CPC sequence is shared by every LPAR on the machine, so it stays on `zvm.cpc.sequence` only.
 
-The exporter fills those from `/proc/sysinfo` on the Linux on Z guest (LPAR name and number, machine type, sequence code, plant, and `VM00 Name`) and from Feilong host and SSI fields it already collected. `/proc/sysinfo` is read at startup and then at most every 10 minutes (`identity.interval`, minimum 600 seconds). Set any `identity.*` value, or the matching `ZVM_EXPORTER_IDENTITY_*` variable, to override a label. Empty overrides are ignored.
+| Attribute on the metric and the resource | Prometheus label | Where the value comes from |
+| --- | --- | --- |
+| `host.name` | `host_name` | Same value as `zvm.host.name` |
+| `host.arch` | `host_arch` | Feilong `architecture`, or an override |
+| `deployment.environment.name` | `deployment_environment_name` | Override only |
+| `zvm.system.name` | `zvm_system_name` | Feilong `zvm_host`, or an override |
+| `zvm.host.name` | `zvm_host_name` | Feilong `hypervisor_hostname`, or an override |
+| `zvm.lpar.name` | `zvm_lpar_name` | `/proc/sysinfo` `LPAR Name`, or an override |
+| `zvm.lpar.number` | `zvm_lpar_number` | `/proc/sysinfo` `LPAR Number`, or an override |
+| `zvm.cpc.type` | `zvm_cpc_type` | `/proc/sysinfo` `Type`, or an override |
+| `zvm.cpc.model` | `zvm_cpc_model` | Feilong CEC model when present, otherwise `/proc/sysinfo` `Model` |
+| `zvm.cpc.sequence` | `zvm_cpc_sequence` | `/proc/sysinfo` `Sequence Code`, or an override |
+| `zvm.cpc.plant` | `zvm_cpc_plant` | `/proc/sysinfo` `Plant`, or an override |
+| `zvm.site` | `zvm_site` | Override only |
+| `zvm.ssi.name` | `zvm_ssi_name` | Feilong SSI response already collected, or an override |
+| `zvm.hypervisor` | `zvm_hypervisor` | `/proc/sysinfo` `VM00 Control Program`, for example `z/VM 7.3.0` |
+| `zvm.exporter.guest` | `zvm_exporter_guest` | Userid of the virtual machine running this Linux |
+| `zvm.vm.level` | `zvm_vm_level` | `VM00` or `VM01`, the level that supplied the guest userid |
 
-OpenTelemetry resource attributes are taken from that same identity at process start: `host.name`, `host.arch`, `host.id` (CPC sequence), `deployment.environment.name`, and `zvm.*` for the rest. `host.type` is not set, because the semantic convention uses it for a different meaning. Resource attributes do not change for the life of the process. The Prometheus info metric and the OTLP `zvm.system.info` series pick up a refreshed `/proc/sysinfo` read and any Feilong fields from the latest scrape.
+`/proc/sysinfo` is read at startup and then at most every 10 minutes (`identity.interval`, minimum 600 seconds). The read stops at 64 KiB. A non-empty `identity.*` value, or the matching `ZVM_EXPORTER_IDENTITY_*` variable, replaces the discovered value. Empty overrides are ignored.
 
-Guest, NIC, and disk series are not stamped with the LPAR label. Join them to `zvm_system_info` on `zvm_host_name` when a dashboard needs the LPAR name. That keeps cardinality flat.
+`VM00` is the hypervisor level closest to the hardware. `VM00 Name` is that level's virtual-machine userid, not the z/VM system name (`QUERY USERID` prints the system name after `AT`). `zvm.hypervisor` is always `VM00 Control Program`. The exporter guest userid is the `Name` at the highest VM level. With only `VM00`, Linux is a first-level guest and that name is the exporter guest. A `VM01` block means Linux is second-level: `zvm.exporter.guest` is `VM01 Name`, `zvm.vm.level` is `VM01`, and `zvm.hypervisor` stays the first-level control program.
+
+vmcp-only mode does not run `QUERY USERID`. Set `identity.system_name` and `identity.host_name` when Feilong is off. If a caller already has a cached `userid AT sysname` line, it can pass that text in. Nothing in the scrape path issues the command.
+
+Resource attributes are taken once, at process start, and do not change afterward. The info metric picks up a later `/proc/sysinfo` read and the Feilong fields from the latest scrape. Empty attributes are omitted from the resource and kept as empty labels on the metric so the Prometheus family stays one shape. `host.type` is not set.
+
+Guest, NIC, and disk series are not stamped with the LPAR label. Join them to `zvm_system_info` on `zvm_host_name`.
 
 ## Release
 

@@ -14,6 +14,46 @@ EVENTS = DYNATRACE / "metric-events"
 DS = {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}
 
 
+def _lpar(expr: str) -> str:
+    """Keep series whose host is the selected system and LPAR. Info value is 1."""
+
+    return (
+        f"({expr}) * on(zvm_host_name) group_left(zvm_lpar_name) "
+        'zvm_system_info{zvm_host_name=~"$system",zvm_lpar_name=~"$lpar"}'
+    )
+
+
+def _steps(marks: str | None) -> dict:
+    """Color steps. ``None`` means no numeric threshold (bytes, counts, days)."""
+
+    if marks == "utilization":
+        steps = [
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 0.7},
+            {"color": "red", "value": 0.85},
+        ]
+    elif marks == "up":
+        steps = [
+            {"color": "red", "value": None},
+            {"color": "green", "value": 1},
+        ]
+    elif marks == "headroom":
+        steps = [
+            {"color": "red", "value": None},
+            {"color": "yellow", "value": 0.15},
+            {"color": "green", "value": 0.30},
+        ]
+    elif marks == "overcommit":
+        steps = [
+            {"color": "green", "value": None},
+            {"color": "yellow", "value": 1.0},
+            {"color": "red", "value": 1.5},
+        ]
+    else:
+        steps = [{"color": "green", "value": None}]
+    return {"mode": "absolute", "steps": steps}
+
+
 def _panel(
     pid: int,
     title: str,
@@ -28,11 +68,15 @@ def _panel(
     h: int = 8,
     legend: str = "{{zvm_host_name}}",
     instant: bool = False,
+    marks: str | None = None,
 ) -> dict:
     target: dict = {"expr": expr, "refId": "A", "legendFormat": legend}
     if instant:
         target["instant"] = True
         target["format"] = "table"
+    defaults: dict = {"unit": unit, "thresholds": _steps(marks)}
+    if marks != "overcommit":
+        defaults["min"] = 0
     return {
         "id": pid,
         "type": kind,
@@ -41,21 +85,7 @@ def _panel(
         "datasource": DS,
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
         "targets": [target],
-        "fieldConfig": {
-            "defaults": {
-                "unit": unit,
-                "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                        {"color": "green", "value": None},
-                        {"color": "yellow", "value": 0.7},
-                        {"color": "red", "value": 0.85},
-                    ],
-                },
-                "min": 0,
-            },
-            "overrides": [],
-        },
+        "fieldConfig": {"defaults": defaults, "overrides": []},
         "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
     }
 
@@ -106,7 +136,8 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
                         "refId": "A",
                     },
                     "refresh": 2,
-                    "includeAll": False,
+                    "includeAll": True,
+                    "allValue": ".*",
                     "multi": False,
                     "current": {},
                     "sort": 1,
@@ -116,10 +147,14 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
                     "label": "LPAR",
                     "type": "query",
                     "datasource": DS,
-                    "definition": "label_values(zvm_system_info, lpar)",
-                    "query": {"query": "label_values(zvm_system_info, lpar)", "refId": "A"},
+                    "definition": 'label_values(zvm_system_info{zvm_host_name=~"$system"}, zvm_lpar_name)',
+                    "query": {
+                        "query": 'label_values(zvm_system_info{zvm_host_name=~"$system"}, zvm_lpar_name)',
+                        "refId": "A",
+                    },
                     "refresh": 2,
                     "includeAll": True,
+                    "allValue": ".*",
                     "multi": False,
                     "current": {},
                     "sort": 1,
@@ -129,13 +164,22 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
                     "label": "Guest",
                     "type": "query",
                     "datasource": DS,
-                    "definition": 'label_values(zvm_guest_cpu_count_cpus{zvm_host_name="$system"}, zvm_guest_id)',
+                    "definition": (
+                        'label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~"$system"}'
+                        ' and on(zvm_host_name) zvm_system_info{zvm_host_name=~"$system",zvm_lpar_name=~"$lpar"}),'
+                        " zvm_guest_id)"
+                    ),
                     "query": {
-                        "query": 'label_values(zvm_guest_cpu_count_cpus{zvm_host_name="$system"}, zvm_guest_id)',
+                        "query": (
+                            'label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~"$system"}'
+                            ' and on(zvm_host_name) zvm_system_info{zvm_host_name=~"$system",zvm_lpar_name=~"$lpar"}),'
+                            " zvm_guest_id)"
+                        ),
                         "refId": "A",
                     },
                     "refresh": 2,
                     "includeAll": True,
+                    "allValue": ".*",
                     "multi": True,
                     "current": {},
                     "sort": 1,
@@ -163,8 +207,8 @@ FLEET = [
     _panel(
         1,
         "Systems reporting",
-        "Count of z/VM exporters whose last host scrape succeeded. A drop means a system stopped reporting. Check zvm_exporter_up and the exporter process before chasing guest symptoms.",
-        "count(zvm_exporter_up == 1)",
+        "Count of zvm_system_info series for the selected system and LPAR. The series exists while Prometheus is scraping that exporter. zvm_exporter_up itself has no host label, so it cannot be split by LPAR.",
+        'count(zvm_system_info{zvm_host_name=~"$system",zvm_lpar_name=~"$lpar"})',
         kind="stat",
         x=0,
         y=0,
@@ -175,9 +219,10 @@ FLEET = [
     _panel(
         2,
         "Fleet CPU",
-        "INDICATE LOAD average processor utilization for every system. Green under 70 percent, yellow under 85, red at or above 85. Sustained red is a capacity conversation, not a page-space alarm.",
-        "zvm_system_cpu_utilization",
+        "INDICATE LOAD average processor utilization for the selected system and LPAR. Green under 70 percent, yellow under 85, red at or above 85. Sustained red is a capacity conversation, not a page-space alarm.",
+        _lpar('zvm_system_cpu_utilization{zvm_host_name=~"$system"}'),
         unit="percentunit",
+        marks="utilization",
         x=6,
         y=0,
         w=18,
@@ -186,9 +231,10 @@ FLEET = [
     _panel(
         3,
         "Exporter up",
-        "1 when Feilong host collection succeeded. 0 means the snapshot is stale or Feilong is down. Treat this as the traffic light for the row.",
+        "1 when Feilong host collection succeeded. 0 means the process is up but Feilong failed. This series has no zvm_host_name label, so the LPAR variable does not filter it. A dead process is the Prometheus up metric, not this one.",
         "zvm_exporter_up",
         kind="stat",
+        marks="up",
         x=0,
         y=4,
         w=6,
@@ -198,8 +244,8 @@ FLEET = [
     _panel(
         4,
         "Identity",
-        "One row per exporter. Join other panels to zvm_host_name. lpar, CPC type, and site come from zvm_system_info, not from guest series.",
-        "zvm_system_info",
+        "One row per exporter for the selected system and LPAR. zvm_lpar_name, CPC type, and site are only on this series. Other panels join it on zvm_host_name.",
+        'zvm_system_info{zvm_host_name=~"$system",zvm_lpar_name=~"$lpar"}',
         kind="table",
         instant=True,
         x=0,
@@ -212,8 +258,12 @@ FLEET = [
         5,
         "Host memory used",
         "Feilong memory_mb_used divided by memory_mb. This is LPAR memory the hypervisor reports, not Linux MemAvailable.",
-        'zvm_host_memory_usage_bytes{zvm_host_name="$system"} / zvm_host_memory_limit_bytes{zvm_host_name="$system"}',
+        _lpar(
+            'zvm_host_memory_usage_bytes{zvm_host_name=~"$system"}'
+            ' / zvm_host_memory_limit_bytes{zvm_host_name=~"$system"}'
+        ),
         unit="percentunit",
+        marks="utilization",
         x=0,
         y=16,
         w=12,
@@ -224,8 +274,9 @@ FLEET = [
         6,
         "Paging space used",
         "Pages in use divided by pages allocated, from QUERY ALLOC PAGE. Trend this. A high value is a warning, not a page-fault outage by itself.",
-        'zvm_paging_utilization{zvm_host_name="$system"}',
+        _lpar('zvm_paging_utilization{zvm_host_name=~"$system"}'),
         unit="percentunit",
+        marks="utilization",
         x=12,
         y=16,
         w=12,
@@ -235,8 +286,9 @@ FLEET = [
         7,
         "Spool space used",
         "Spool pages in use divided by spool pages allocated. Watch the slope. Do not page someone for a single sample.",
-        'zvm_spool_utilization{zvm_host_name="$system"}',
+        _lpar('zvm_spool_utilization{zvm_host_name=~"$system"}'),
         unit="percentunit",
+        marks="utilization",
         x=0,
         y=24,
         w=12,
@@ -245,9 +297,10 @@ FLEET = [
     _panel(
         8,
         "SMAPI healthy",
-        "1 when Feilong reports the SMAPI layer healthy. If this is 0 while the exporter is up, guest stats may be missing even though host info still arrives.",
+        "1 when Feilong reports the SMAPI layer healthy. 0 means guest stats may be missing while host info still arrives. This series has no host label, so the LPAR variable does not filter it.",
         "zvm_smapi_healthy",
         kind="stat",
+        marks="up",
         x=12,
         y=24,
         w=12,
@@ -261,8 +314,9 @@ DIAGNOSIS = [
         1,
         "z/VM CPU utilization",
         "System-wide AVGPROC from INDICATE LOAD, as a ratio. If this is high and guest steal is high, the LPAR is out of CPU. If this is low and steal is high, look at shares and other LPARs on the CPC, which this exporter does not see.",
-        'zvm_system_cpu_utilization{zvm_host_name="$system"}',
+        _lpar('zvm_system_cpu_utilization{zvm_host_name=~"$system"}'),
         unit="percentunit",
+        marks="utilization",
         x=0,
         y=0,
         w=8,
@@ -273,7 +327,9 @@ DIAGNOSIS = [
         2,
         "Guest CPU time",
         "Rate of virtual CPU seconds. A value of 2 means about two cores of guest CPU. Compare with zvm_guest_cpu_count_cpus. A guest using a small fraction of its defined CPUs is an oversized-CPU candidate, not a steal problem.",
-        'rate(zvm_guest_cpu_time_seconds_total{zvm_host_name="$system",zvm_guest_id=~"$guest"}[5m])',
+        _lpar(
+            'rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=~"$system",zvm_guest_id=~"$guest"}[5m])'
+        ),
         unit="short",
         x=8,
         y=0,
@@ -287,6 +343,7 @@ DIAGNOSIS = [
         "node_exporter steal time for the selected Linux on Z instances. Steal is time the guest was runnable and the hypervisor ran something else. High steal with high z/VM CPU means the system is busy. High steal with low z/VM CPU means look outside this LPAR.",
         'avg by (instance) (rate(node_cpu_seconds_total{mode="steal",instance=~"$linux_instance"}[5m]))',
         unit="percentunit",
+        marks="utilization",
         x=16,
         y=0,
         w=8,
@@ -308,7 +365,7 @@ DIAGNOSIS = [
         5,
         "Defined guest CPUs",
         "Virtual CPUs Feilong reports for the guest. This is capacity, not usage. Pair it with Guest CPU time to see idle cores.",
-        'zvm_guest_cpu_count_cpus{zvm_host_name="$system",zvm_guest_id=~"$guest"}',
+        _lpar('zvm_guest_cpu_count_cpus{zvm_host_name=~"$system",zvm_guest_id=~"$guest"}'),
         x=8,
         y=8,
         w=8,
@@ -319,7 +376,7 @@ DIAGNOSIS = [
         6,
         "Guest memory in use",
         "Feilong used_mem_kb for the guest, in bytes. This is the z/VM view of the guest, not Linux MemAvailable.",
-        'zvm_guest_memory_usage_bytes{zvm_host_name="$system",zvm_guest_id=~"$guest"}',
+        _lpar('zvm_guest_memory_usage_bytes{zvm_host_name=~"$system",zvm_guest_id=~"$guest"}'),
         unit="bytes",
         x=16,
         y=8,
@@ -358,8 +415,12 @@ CAPACITY = [
         1,
         "Memory overcommit",
         "Sum of guest-reported total memory (Feilong total_memory, treated as kilobytes) divided by LPAR memory. Above 1 means guests are defined with more memory than the LPAR has. This is not Linux usage. max_mem is a ceiling and is not used here because it overstates what is defined.",
-        'sum(zvm_guest_memory_total_bytes{zvm_host_name="$system"}) / zvm_host_memory_limit_bytes{zvm_host_name="$system"}',
+        _lpar(
+            'sum by (zvm_host_name) (zvm_guest_memory_total_bytes{zvm_host_name=~"$system"})'
+            ' / zvm_host_memory_limit_bytes{zvm_host_name=~"$system"}'
+        ),
         unit="short",
+        marks="overcommit",
         x=0,
         y=0,
         w=8,
@@ -370,8 +431,9 @@ CAPACITY = [
         2,
         "CPU headroom",
         "One minus INDICATE LOAD utilization. Headroom near zero means little room for a new guest or a CPU spike. It is not a forecast.",
-        '1 - zvm_system_cpu_utilization{zvm_host_name="$system"}',
+        _lpar('1 - zvm_system_cpu_utilization{zvm_host_name=~"$system"}'),
         unit="percentunit",
+        marks="headroom",
         x=8,
         y=0,
         w=8,
@@ -382,8 +444,12 @@ CAPACITY = [
         3,
         "Guest memory used ratio",
         "used_mem divided by max_mem. A guest with a large limit and a ratio near zero is a right-sizing candidate. max_mem is the Feilong ceiling, so confirm the directory definition before shrinking a guest.",
-        'zvm_guest_memory_usage_bytes{zvm_host_name="$system"} / zvm_guest_memory_limit_bytes{zvm_host_name="$system"}',
+        _lpar(
+            'zvm_guest_memory_usage_bytes{zvm_host_name=~"$system"}'
+            ' / zvm_guest_memory_limit_bytes{zvm_host_name=~"$system"}'
+        ),
         unit="percentunit",
+        marks="utilization",
         x=16,
         y=0,
         w=8,
@@ -394,8 +460,12 @@ CAPACITY = [
         4,
         "Guest CPU used vs defined",
         "CPU-seconds per second over 1 hour, divided by defined virtual CPUs. A ratio near zero for many hours is an idle or oversized CPU definition.",
-        'rate(zvm_guest_cpu_time_seconds_total{zvm_host_name="$system"}[1h]) / zvm_guest_cpu_count_cpus{zvm_host_name="$system"}',
+        _lpar(
+            'rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=~"$system"}[1h])'
+            ' / zvm_guest_cpu_count_cpus{zvm_host_name=~"$system"}'
+        ),
         unit="percentunit",
+        marks="utilization",
         x=0,
         y=8,
         w=12,
@@ -406,8 +476,9 @@ CAPACITY = [
         5,
         "Paging in 7 days",
         "predict_linear of paging utilization over the last 6 hours, projected 7 days ahead. A value above 1 means the straight line crosses full. Negative slope means usage is falling. This is a sketch, not a capacity plan.",
-        'predict_linear(zvm_paging_utilization{zvm_host_name="$system"}[6h], 86400 * 7)',
+        _lpar('predict_linear(zvm_paging_utilization{zvm_host_name=~"$system"}[6h], 86400 * 7)'),
         unit="percentunit",
+        marks="utilization",
         x=12,
         y=8,
         w=12,
@@ -418,8 +489,9 @@ CAPACITY = [
         6,
         "Spool in 7 days",
         "Same linear projection for spool utilization. Use it to schedule spool cleanup. Do not treat a single projection as an incident.",
-        'predict_linear(zvm_spool_utilization{zvm_host_name="$system"}[6h], 86400 * 7)',
+        _lpar('predict_linear(zvm_spool_utilization{zvm_host_name=~"$system"}[6h], 86400 * 7)'),
         unit="percentunit",
+        marks="utilization",
         x=0,
         y=16,
         w=12,
@@ -430,7 +502,10 @@ CAPACITY = [
         7,
         "Days until paging reaches 90 percent",
         "Remaining distance to 0.9 divided by the 6-hour derivative, in days. Ignore negative or huge values: the slope is flat or downward. Alerting uses a 7-day projection instead of this raw number.",
-        '(0.9 - zvm_paging_utilization{zvm_host_name="$system"}) / deriv(zvm_paging_utilization{zvm_host_name="$system"}[6h]) / 86400',
+        _lpar(
+            '(0.9 - zvm_paging_utilization{zvm_host_name=~"$system"})'
+            ' / deriv(zvm_paging_utilization{zvm_host_name=~"$system"}[6h]) / 86400'
+        ),
         unit="d",
         x=12,
         y=16,
@@ -441,17 +516,36 @@ CAPACITY = [
 ]
 
 ALERTS = """\
+# SPDX-License-Identifier: Apache-2.0
+# The job label below is the Prometheus scrape job. Name the job
+# zvm-otel-exporter, or edit this matcher to the job you actually use.
 groups:
   - name: zvm.exporter
     rules:
-      - alert: ZvmExporterDown
+      - alert: ZvmExporterProcessDown
+        expr: up{job="zvm-otel-exporter"} == 0 or absent(zvm_exporter_up)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: z/VM exporter process is not being scraped
+          description: Prometheus is not scraping the exporter. This rule assumes the scrape job label is zvm-otel-exporter. Change the job matcher if your configuration uses another name. up == 0 fires per target while Prometheus still remembers it. absent(zvm_exporter_up) fires when no exporter series exist at all. It does not mean Feilong failed.
+      - alert: ZvmFeilongDown
         expr: zvm_exporter_up == 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: z/VM exporter is not collecting host data
-          description: zvm_exporter_up has been 0 for 5 minutes. Feilong is unreachable or the process is down. Guest symptoms in this window are stale.
+          summary: Feilong host collection is failing
+          description: The exporter process is being scraped and zvm_exporter_up has been 0 for 5 minutes. Feilong is unreachable or host collection failed. This is not a dead process. A dead process is ZvmExporterProcessDown.
+      - alert: ZvmSmapiDown
+        expr: zvm_smapi_healthy == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: SMAPI is reported unhealthy
+          description: zvm_smapi_healthy has been 0 for 15 minutes. Guest stats may be missing. The exporter process and Feilong host collection can still be up.
       - alert: ZvmExporterStale
         expr: zvm_exporter_scrape_stale == 1
         for: 10m
@@ -577,25 +671,106 @@ groups:
 """
 
 
-def _dyn_tile(title: str, description: str, dql: str, visualization: str) -> dict:
+_ALL = ["3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*"]
+
+
+def _dyn_var(key: str, query: str) -> dict:
     return {
-        "title": title,
-        "description": description,
-        "visualization": visualization,
-        "dql": dql,
+        "version": 2,
+        "key": key,
+        "type": "query",
+        "visible": True,
+        "editable": True,
+        "multiple": True,
+        "defaultValue": list(_ALL),
+        "input": query,
     }
 
 
-def _dyn_dashboard(name: str, description: str, tiles: list[dict]) -> dict:
+def _scoped_dql(metric: str, *, guest: bool = False) -> str:
+    """Timeseries filtered by the dashboard system and LPAR variables.
+
+    z/VM metric dimensions do not all carry zvm.lpar.name. The lookup keeps
+    hosts whose zvm.system.info row matches the selected LPAR.
+    """
+
+    by = "{zvm.host.name, zvm.guest.id}" if guest else "{zvm.host.name}"
+    guest_filter = "\n| filter in(zvm.guest.id, array($guest))" if guest else ""
+    return (
+        f"timeseries avg({metric}), by:{by}\n"
+        "| lookup [\n"
+        "    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n"
+        "    | filter in(zvm.lpar.name, array($lpar))\n"
+        "  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n"
+        "| filter in(zvm.host.name, array($system))"
+        f"{guest_filter}"
+    )
+
+
+def _dyn_dashboard(title: str, summary: str, tiles: list[dict]) -> dict:
+    """Dynatrace Dashboards document, schema version 21.
+
+    Upload this file from Dashboards, Upload. It is the document content
+    (version, variables, tiles, layouts), which is what Download writes.
+    """
+
+    body_tiles: dict[str, dict] = {"0": {"type": "markdown", "content": f"# {title}\n\n{summary}"}}
+    layouts: dict[str, dict] = {"0": {"x": 0, "y": 0, "w": 24, "h": 2}}
+    for index, tile in enumerate(tiles, start=1):
+        key = str(index)
+        body_tiles[key] = {
+            "type": "data",
+            "title": tile["title"],
+            "description": tile["description"],
+            "query": tile["query"],
+            "visualization": tile["visualization"],
+            "visualizationSettings": {},
+            "querySettings": {},
+        }
+        layouts[key] = {"x": tile["x"], "y": tile["y"], "w": tile["w"], "h": tile["h"]}
     return {
-        "displayName": name,
-        "description": description,
+        "version": 21,
         "variables": [
-            {"name": "system", "key": "zvm.host.name"},
-            {"name": "lpar", "key": "zvm.lpar.name"},
-            {"name": "guest", "key": "zvm.guest.id"},
+            _dyn_var(
+                "system",
+                "timeseries avg(zvm.system.info), by:{zvm.host.name}"
+                " | fields zvm.host.name | dedup zvm.host.name",
+            ),
+            _dyn_var(
+                "lpar",
+                "timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}"
+                " | filter in(zvm.host.name, array($system))"
+                " | fields zvm.lpar.name | dedup zvm.lpar.name",
+            ),
+            _dyn_var(
+                "guest",
+                "timeseries avg(zvm.guest.cpu.count), by:{zvm.host.name, zvm.guest.id}"
+                " | lookup ["
+                " timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}"
+                " | filter in(zvm.lpar.name, array($lpar))"
+                " ], sourceField:zvm.host.name, lookupField:zvm.host.name"
+                " | filter in(zvm.host.name, array($system))"
+                " | fields zvm.guest.id | dedup zvm.guest.id",
+            ),
         ],
-        "tiles": tiles,
+        "tiles": body_tiles,
+        "layouts": layouts,
+        "settings": {
+            "defaultTimeframe": {"enabled": True, "value": {"from": "now()-6h", "to": "now()"}}
+        },
+    }
+
+
+def _tile(title: str, description: str, query: str, x: int, y: int, w: int, h: int) -> dict:
+    return {
+        "title": title,
+        "description": description,
+        "query": query,
+        "visualization": "lineChart",
+        "x": x,
+        "y": y,
+        "w": w,
+        "h": h,
     }
 
 
@@ -609,6 +784,7 @@ def _event(
     samples: int,
     violating: int,
     condition: str = "ABOVE",
+    alert_on_no_data: bool = False,
 ) -> dict:
     return {
         "schemaId": "builtin:anomaly-detection.metric-events",
@@ -620,6 +796,7 @@ def _event(
             "modelProperties": {
                 "type": "STATIC_THRESHOLD",
                 "threshold": threshold,
+                "alertOnNoData": alert_on_no_data,
                 "alertCondition": condition,
                 "violatingSamples": violating,
                 "samples": samples,
@@ -639,15 +816,40 @@ def _event(
 
 EVENTS_SPEC = [
     _event(
-        "zvm-exporter-down.json",
-        "z/VM exporter down",
-        "zvm.exporter.up has been 0. The OTLP stream is stale or Feilong is down.",
+        "zvm-exporter-missing.json",
+        "z/VM exporter metrics are missing",
+        "No zvm.exporter.up samples arrived. The process stopped sending OTLP. This is not a Feilong failure. alertOnNoData is set and the threshold is below any real value so a present 0 does not fire this event.",
+        "zvm.exporter.up:last",
+        -1,
+        "critical",
+        5,
+        3,
+        "BELOW",
+        True,
+    ),
+    _event(
+        "zvm-feilong-down.json",
+        "Feilong host collection is failing",
+        "zvm.exporter.up is present and below 1, so the process is exporting and Feilong host collection failed. alertOnNoData is false so a dead process does not also raise this event.",
         "zvm.exporter.up:last",
         1,
         "critical",
         5,
         3,
         "BELOW",
+        False,
+    ),
+    _event(
+        "zvm-smapi-down.json",
+        "SMAPI is unhealthy",
+        "zvm.smapi.healthy is present and below 1. Guest stats may be missing while the process and Feilong host collection are still up.",
+        "zvm.smapi.healthy:last",
+        1,
+        "warning",
+        5,
+        3,
+        "BELOW",
+        False,
     ),
     _event(
         "zvm-cpu-high.json",
@@ -729,6 +931,7 @@ def main() -> None:
         (GRAFANA / name).write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     (GRAFANA / "alerts.yml").write_text(ALERTS, encoding="utf-8")
     (GRAFANA / "provisioning.yaml").write_text(
+        "# SPDX-License-Identifier: Apache-2.0\n"
         "apiVersion: 1\n"
         "providers:\n"
         "  - name: zvm\n"
@@ -741,91 +944,127 @@ def main() -> None:
     dyn = {
         "zvm-fleet.json": _dyn_dashboard(
             "z/VM fleet",
-            "Fleet status from OTLP metrics. Filter with the system and lpar variables.",
+            "Fleet status from OTLP metrics. The system variable lists hosts. The LPAR variable lists LPARs on those hosts. Tiles keep a host only when zvm.system.info matches both.",
             [
-                _dyn_tile(
+                _tile(
                     "CPU by system",
-                    "Average INDICATE LOAD utilization. High CPU plus high steal means the LPAR is busy.",
-                    "timeseries avg(zvm.system.cpu.utilization), by:{zvm.host.name, zvm.lpar.name}",
-                    "lineChart",
+                    "Average INDICATE LOAD utilization for the selected system and LPAR. High CPU plus high steal means the LPAR is busy.",
+                    _scoped_dql("zvm.system.cpu.utilization"),
+                    0,
+                    2,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Exporter up",
-                    "1 when the last Feilong host scrape worked. 0 means do not trust the other tiles.",
-                    "timeseries avg(zvm.exporter.up), by:{zvm.host.name}",
-                    "singleValue",
+                    "1 when the last Feilong host scrape worked. 0 means Feilong failed while the process was still exporting. A missing series is the separate missing-data event, not this tile.",
+                    _scoped_dql("zvm.exporter.up"),
+                    12,
+                    2,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Paging utilization",
-                    "Paging pages in use over pages allocated. Trend, not an outage signal.",
-                    "timeseries avg(zvm.paging.utilization), by:{zvm.host.name}",
-                    "lineChart",
+                    "Paging pages in use over pages allocated for the selected system and LPAR. Trend, not an outage signal.",
+                    _scoped_dql("zvm.paging.utilization"),
+                    0,
+                    10,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Spool utilization",
-                    "Spool pages in use over pages allocated.",
-                    "timeseries avg(zvm.spool.utilization), by:{zvm.host.name}",
-                    "lineChart",
+                    "Spool pages in use over pages allocated for the selected system and LPAR.",
+                    _scoped_dql("zvm.spool.utilization"),
+                    12,
+                    10,
+                    12,
+                    8,
                 ),
             ],
         ),
         "zvm-diagnosis.json": _dyn_dashboard(
             "z/VM and Linux diagnosis",
-            "Put z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work.",
+            "Put z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work. OneAgent tiles are not filtered by the z/VM LPAR variable.",
             [
-                _dyn_tile(
+                _tile(
                     "z/VM CPU",
-                    "zvm.system.cpu.utilization from the exporter.",
-                    "timeseries avg(zvm.system.cpu.utilization), by:{zvm.host.name}",
-                    "lineChart",
+                    "zvm.system.cpu.utilization for the selected system and LPAR.",
+                    _scoped_dql("zvm.system.cpu.utilization"),
+                    0,
+                    2,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Guest CPU time",
-                    "Rate is not a DQL function here. The tile shows the cumulative counter. Use the metric browser rate transformation in the dashboard UI if you need cores.",
-                    "timeseries avg(zvm.guest.cpu.time), by:{zvm.guest.id, zvm.host.name}",
-                    "lineChart",
+                    "Cumulative guest CPU counter for the selected guest, system, and LPAR. Apply a rate in the tile if you need cores. DQL timeseries does not take a PromQL rate().",
+                    _scoped_dql("zvm.guest.cpu.time", guest=True),
+                    12,
+                    2,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "OneAgent CPU steal",
-                    "builtin:host.cpu.steal from OneAgent, percent. Empty until the Linux guest is monitored by OneAgent.",
+                    "builtin:host.cpu.steal from OneAgent, percent. Empty until the Linux guest is monitored by OneAgent. This tile does not use the z/VM LPAR variable.",
                     "timeseries avg(builtin:host.cpu.steal), by:{dt.entity.host}",
-                    "lineChart",
+                    0,
+                    10,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "OneAgent CPU usage",
-                    "builtin:host.cpu.usage. Compare with steal. Usage without steal is work inside Linux.",
+                    "builtin:host.cpu.usage. Compare with steal. Usage without steal is work inside Linux. This tile does not use the z/VM LPAR variable.",
                     "timeseries avg(builtin:host.cpu.usage), by:{dt.entity.host}",
-                    "lineChart",
+                    12,
+                    10,
+                    12,
+                    8,
                 ),
             ],
         ),
         "zvm-capacity.json": _dyn_dashboard(
             "z/VM capacity",
-            "Memory overcommit is guest total over host limit. The forecast tile uses DQL forecast on paging utilization.",
+            "Memory overcommit is guest total over host limit. Forecast tiles append the DQL forecast command. All four tiles follow the system and LPAR variables.",
             [
-                _dyn_tile(
+                _tile(
                     "Host memory",
-                    "LPAR memory limit and usage from Feilong, in bytes.",
-                    "timeseries avg(zvm.host.memory.usage), avg(zvm.host.memory.limit), by:{zvm.host.name}",
-                    "lineChart",
+                    "LPAR memory usage from Feilong, in bytes, for the selected system and LPAR.",
+                    _scoped_dql("zvm.host.memory.usage"),
+                    0,
+                    2,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Guest memory total",
-                    "Guest-reported total memory. Sum in the UI and divide by host limit for overcommit.",
-                    "timeseries sum(zvm.guest.memory.total), by:{zvm.host.name}",
-                    "lineChart",
+                    "Guest-reported total memory for the selected system and LPAR. Divide by host memory limit for overcommit.",
+                    _scoped_dql("zvm.guest.memory.total"),
+                    12,
+                    2,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Paging forecast",
                     "DQL forecast of paging utilization. A rising forecast through 0.9 inside a week is a warning, not an incident.",
-                    "timeseries avg(zvm.paging.utilization), by:{zvm.host.name} | forecast",
-                    "lineChart",
+                    _scoped_dql("zvm.paging.utilization") + "\n| forecast",
+                    0,
+                    10,
+                    12,
+                    8,
                 ),
-                _dyn_tile(
+                _tile(
                     "Spool forecast",
                     "DQL forecast of spool utilization. Warning only.",
-                    "timeseries avg(zvm.spool.utilization), by:{zvm.host.name} | forecast",
-                    "lineChart",
+                    _scoped_dql("zvm.spool.utilization") + "\n| forecast",
+                    12,
+                    10,
+                    12,
+                    8,
                 ),
             ],
         ),

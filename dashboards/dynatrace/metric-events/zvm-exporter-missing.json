@@ -3,22 +3,23 @@
   "scope": "environment",
   "value": {
     "enabled": true,
-    "summary": "z/VM exporter down",
+    "summary": "z/VM exporter metrics are missing",
     "queryDefinition": {
       "type": "METRIC_SELECTOR",
       "metricSelector": "zvm.exporter.up:last"
     },
     "modelProperties": {
       "type": "STATIC_THRESHOLD",
-      "threshold": 1,
+      "threshold": -1,
+      "alertOnNoData": true,
       "alertCondition": "BELOW",
       "violatingSamples": 3,
       "samples": 5,
       "dealertingSamples": 5
     },
     "eventTemplate": {
-      "title": "z/VM exporter down",
-      "description": "zvm.exporter.up has been 0. The OTLP stream is stale or Feilong is down.",
+      "title": "z/VM exporter metrics are missing",
+      "description": "No zvm.exporter.up samples arrived. The process stopped sending OTLP. This is not a Feilong failure. alertOnNoData is set and the threshold is below any real value so a present 0 does not fire this event.",
       "eventType": "AVAILABILITY",
       "davisMerge": true,
       "severity": "critical"

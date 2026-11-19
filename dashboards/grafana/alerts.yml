@@ -1,14 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# The job label below is the Prometheus scrape job. Name the job
+# zvm-otel-exporter, or edit this matcher to the job you actually use.
 groups:
   - name: zvm.exporter
     rules:
-      - alert: ZvmExporterDown
+      - alert: ZvmExporterProcessDown
+        expr: up{job="zvm-otel-exporter"} == 0 or absent(zvm_exporter_up)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: z/VM exporter process is not being scraped
+          description: Prometheus is not scraping the exporter. This rule assumes the scrape job label is zvm-otel-exporter. Change the job matcher if your configuration uses another name. up == 0 fires per target while Prometheus still remembers it. absent(zvm_exporter_up) fires when no exporter series exist at all. It does not mean Feilong failed.
+      - alert: ZvmFeilongDown
         expr: zvm_exporter_up == 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: z/VM exporter is not collecting host data
-          description: zvm_exporter_up has been 0 for 5 minutes. Feilong is unreachable or the process is down. Guest symptoms in this window are stale.
+          summary: Feilong host collection is failing
+          description: The exporter process is being scraped and zvm_exporter_up has been 0 for 5 minutes. Feilong is unreachable or host collection failed. This is not a dead process. A dead process is ZvmExporterProcessDown.
+      - alert: ZvmSmapiDown
+        expr: zvm_smapi_healthy == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: SMAPI is reported unhealthy
+          description: zvm_smapi_healthy has been 0 for 15 minutes. Guest stats may be missing. The exporter process and Feilong host collection can still be up.
       - alert: ZvmExporterStale
         expr: zvm_exporter_scrape_stale == 1
         for: 10m

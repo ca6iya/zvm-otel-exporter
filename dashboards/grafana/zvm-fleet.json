@@ -58,7 +58,8 @@
           "refId": "A"
         },
         "refresh": 2,
-        "includeAll": false,
+        "includeAll": true,
+        "allValue": ".*",
         "multi": false,
         "current": {},
         "sort": 1
@@ -71,13 +72,14 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(zvm_system_info, lpar)",
+        "definition": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
         "query": {
-          "query": "label_values(zvm_system_info, lpar)",
+          "query": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
           "refId": "A"
         },
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": false,
         "current": {},
         "sort": 1
@@ -90,13 +92,14 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}, zvm_guest_id)",
+        "definition": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
         "query": {
-          "query": "label_values(zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}, zvm_guest_id)",
+          "query": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
           "refId": "A"
         },
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": true,
         "current": {},
         "sort": 1
@@ -127,7 +130,7 @@
       "id": 1,
       "type": "stat",
       "title": "Systems reporting",
-      "description": "Count of z/VM exporters whose last host scrape succeeded. A drop means a system stopped reporting. Check zvm_exporter_up and the exporter process before chasing guest symptoms.",
+      "description": "Count of zvm_system_info series for the selected system and LPAR. The series exists while Prometheus is scraping that exporter. zvm_exporter_up itself has no host label, so it cannot be split by LPAR.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -140,7 +143,7 @@
       },
       "targets": [
         {
-          "expr": "count(zvm_exporter_up == 1)",
+          "expr": "count(zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"})",
           "refId": "A",
           "legendFormat": "up"
         }
@@ -154,14 +157,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.85
               }
             ]
           },
@@ -180,7 +175,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Fleet CPU",
-      "description": "INDICATE LOAD average processor utilization for every system. Green under 70 percent, yellow under 85, red at or above 85. Sustained red is a capacity conversation, not a page-space alarm.",
+      "description": "INDICATE LOAD average processor utilization for the selected system and LPAR. Green under 70 percent, yellow under 85, red at or above 85. Sustained red is a capacity conversation, not a page-space alarm.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -193,7 +188,7 @@
       },
       "targets": [
         {
-          "expr": "zvm_system_cpu_utilization",
+          "expr": "(zvm_system_cpu_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "{{zvm_host_name}}"
         }
@@ -233,7 +228,7 @@
       "id": 3,
       "type": "stat",
       "title": "Exporter up",
-      "description": "1 when Feilong host collection succeeded. 0 means the snapshot is stale or Feilong is down. Treat this as the traffic light for the row.",
+      "description": "1 when Feilong host collection succeeded. 0 means the process is up but Feilong failed. This series has no zvm_host_name label, so the LPAR variable does not filter it. A dead process is the Prometheus up metric, not this one.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -258,16 +253,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.85
+                "color": "green",
+                "value": 1
               }
             ]
           },
@@ -286,7 +277,7 @@
       "id": 4,
       "type": "table",
       "title": "Identity",
-      "description": "One row per exporter. Join other panels to zvm_host_name. lpar, CPC type, and site come from zvm_system_info, not from guest series.",
+      "description": "One row per exporter for the selected system and LPAR. zvm_lpar_name, CPC type, and site are only on this series. Other panels join it on zvm_host_name.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -299,7 +290,7 @@
       },
       "targets": [
         {
-          "expr": "zvm_system_info",
+          "expr": "zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "",
           "instant": true,
@@ -315,14 +306,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.85
               }
             ]
           },
@@ -354,7 +337,7 @@
       },
       "targets": [
         {
-          "expr": "zvm_host_memory_usage_bytes{zvm_host_name=\"$system\"} / zvm_host_memory_limit_bytes{zvm_host_name=\"$system\"}",
+          "expr": "(zvm_host_memory_usage_bytes{zvm_host_name=~\"$system\"} / zvm_host_memory_limit_bytes{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "{{zvm_host_name}}"
         }
@@ -407,7 +390,7 @@
       },
       "targets": [
         {
-          "expr": "zvm_paging_utilization{zvm_host_name=\"$system\"}",
+          "expr": "(zvm_paging_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "{{zvm_host_name}}"
         }
@@ -460,7 +443,7 @@
       },
       "targets": [
         {
-          "expr": "zvm_spool_utilization{zvm_host_name=\"$system\"}",
+          "expr": "(zvm_spool_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "{{zvm_host_name}}"
         }
@@ -500,7 +483,7 @@
       "id": 8,
       "type": "stat",
       "title": "SMAPI healthy",
-      "description": "1 when Feilong reports the SMAPI layer healthy. If this is 0 while the exporter is up, guest stats may be missing even though host info still arrives.",
+      "description": "1 when Feilong reports the SMAPI layer healthy. 0 means guest stats may be missing while host info still arrives. This series has no host label, so the LPAR variable does not filter it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -525,16 +508,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.85
+                "color": "green",
+                "value": 1
               }
             ]
           },

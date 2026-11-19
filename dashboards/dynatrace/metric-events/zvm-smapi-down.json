@@ -1,0 +1,28 @@
+{
+  "schemaId": "builtin:anomaly-detection.metric-events",
+  "scope": "environment",
+  "value": {
+    "enabled": true,
+    "summary": "SMAPI is unhealthy",
+    "queryDefinition": {
+      "type": "METRIC_SELECTOR",
+      "metricSelector": "zvm.smapi.healthy:last"
+    },
+    "modelProperties": {
+      "type": "STATIC_THRESHOLD",
+      "threshold": 1,
+      "alertOnNoData": false,
+      "alertCondition": "BELOW",
+      "violatingSamples": 3,
+      "samples": 5,
+      "dealertingSamples": 5
+    },
+    "eventTemplate": {
+      "title": "SMAPI is unhealthy",
+      "description": "zvm.smapi.healthy is present and below 1. Guest stats may be missing while the process and Feilong host collection are still up.",
+      "eventType": "RESOURCE_CONTENTION",
+      "davisMerge": true,
+      "severity": "warning"
+    }
+  }
+}

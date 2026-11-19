@@ -58,7 +58,8 @@
           "refId": "A"
         },
         "refresh": 2,
-        "includeAll": false,
+        "includeAll": true,
+        "allValue": ".*",
         "multi": false,
         "current": {},
         "sort": 1
@@ -71,13 +72,14 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(zvm_system_info, lpar)",
+        "definition": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
         "query": {
-          "query": "label_values(zvm_system_info, lpar)",
+          "query": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
           "refId": "A"
         },
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": false,
         "current": {},
         "sort": 1
@@ -90,13 +92,14 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}, zvm_guest_id)",
+        "definition": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
         "query": {
-          "query": "label_values(zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}, zvm_guest_id)",
+          "query": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
           "refId": "A"
         },
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": true,
         "current": {},
         "sort": 1
@@ -140,7 +143,7 @@
       },
       "targets": [
         {
-          "expr": "sum(zvm_guest_memory_total_bytes{zvm_host_name=\"$system\"}) / zvm_host_memory_limit_bytes{zvm_host_name=\"$system\"}",
+          "expr": "(sum by (zvm_host_name) (zvm_guest_memory_total_bytes{zvm_host_name=~\"$system\"}) / zvm_host_memory_limit_bytes{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "overcommit"
         }
@@ -157,15 +160,14 @@
               },
               {
                 "color": "yellow",
-                "value": 0.7
+                "value": 1.0
               },
               {
                 "color": "red",
-                "value": 0.85
+                "value": 1.5
               }
             ]
-          },
-          "min": 0
+          }
         },
         "overrides": []
       },
@@ -193,7 +195,7 @@
       },
       "targets": [
         {
-          "expr": "1 - zvm_system_cpu_utilization{zvm_host_name=\"$system\"}",
+          "expr": "(1 - zvm_system_cpu_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "headroom"
         }
@@ -205,16 +207,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 0.7
+                "value": 0.15
               },
               {
-                "color": "red",
-                "value": 0.85
+                "color": "green",
+                "value": 0.3
               }
             ]
           },
@@ -246,7 +248,7 @@
       },
       "targets": [
         {
-          "expr": "zvm_guest_memory_usage_bytes{zvm_host_name=\"$system\"} / zvm_guest_memory_limit_bytes{zvm_host_name=\"$system\"}",
+          "expr": "(zvm_guest_memory_usage_bytes{zvm_host_name=~\"$system\"} / zvm_guest_memory_limit_bytes{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "{{zvm_guest_id}}"
         }
@@ -299,7 +301,7 @@
       },
       "targets": [
         {
-          "expr": "rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=\"$system\"}[1h]) / zvm_guest_cpu_count_cpus{zvm_host_name=\"$system\"}",
+          "expr": "(rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=~\"$system\"}[1h]) / zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "{{zvm_guest_id}}"
         }
@@ -352,7 +354,7 @@
       },
       "targets": [
         {
-          "expr": "predict_linear(zvm_paging_utilization{zvm_host_name=\"$system\"}[6h], 86400 * 7)",
+          "expr": "(predict_linear(zvm_paging_utilization{zvm_host_name=~\"$system\"}[6h], 86400 * 7)) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "paging"
         }
@@ -405,7 +407,7 @@
       },
       "targets": [
         {
-          "expr": "predict_linear(zvm_spool_utilization{zvm_host_name=\"$system\"}[6h], 86400 * 7)",
+          "expr": "(predict_linear(zvm_spool_utilization{zvm_host_name=~\"$system\"}[6h], 86400 * 7)) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "spool"
         }
@@ -458,7 +460,7 @@
       },
       "targets": [
         {
-          "expr": "(0.9 - zvm_paging_utilization{zvm_host_name=\"$system\"}) / deriv(zvm_paging_utilization{zvm_host_name=\"$system\"}[6h]) / 86400",
+          "expr": "((0.9 - zvm_paging_utilization{zvm_host_name=~\"$system\"}) / deriv(zvm_paging_utilization{zvm_host_name=~\"$system\"}[6h]) / 86400) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
           "refId": "A",
           "legendFormat": "days"
         }
@@ -472,14 +474,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 0.7
-              },
-              {
-                "color": "red",
-                "value": 0.85
               }
             ]
           },

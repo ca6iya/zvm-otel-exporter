@@ -1,44 +1,124 @@
 {
-  "displayName": "z/VM and Linux diagnosis",
-  "description": "Put z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work.",
+  "version": 21,
   "variables": [
     {
-      "name": "system",
-      "key": "zvm.host.name"
+      "version": 2,
+      "key": "system",
+      "type": "query",
+      "visible": true,
+      "editable": true,
+      "multiple": true,
+      "defaultValue": [
+        "3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*"
+      ],
+      "input": "timeseries avg(zvm.system.info), by:{zvm.host.name} | fields zvm.host.name | dedup zvm.host.name"
     },
     {
-      "name": "lpar",
-      "key": "zvm.lpar.name"
+      "version": 2,
+      "key": "lpar",
+      "type": "query",
+      "visible": true,
+      "editable": true,
+      "multiple": true,
+      "defaultValue": [
+        "3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*"
+      ],
+      "input": "timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name} | filter in(zvm.host.name, array($system)) | fields zvm.lpar.name | dedup zvm.lpar.name"
     },
     {
-      "name": "guest",
-      "key": "zvm.guest.id"
+      "version": 2,
+      "key": "guest",
+      "type": "query",
+      "visible": true,
+      "editable": true,
+      "multiple": true,
+      "defaultValue": [
+        "3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*"
+      ],
+      "input": "timeseries avg(zvm.guest.cpu.count), by:{zvm.host.name, zvm.guest.id} | lookup [ timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name} | filter in(zvm.lpar.name, array($lpar)) ], sourceField:zvm.host.name, lookupField:zvm.host.name | filter in(zvm.host.name, array($system)) | fields zvm.guest.id | dedup zvm.guest.id"
     }
   ],
-  "tiles": [
-    {
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "# z/VM and Linux diagnosis\n\nPut z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work. OneAgent tiles are not filtered by the z/VM LPAR variable."
+    },
+    "1": {
+      "type": "data",
       "title": "z/VM CPU",
-      "description": "zvm.system.cpu.utilization from the exporter.",
+      "description": "zvm.system.cpu.utilization for the selected system and LPAR.",
+      "query": "timeseries avg(zvm.system.cpu.utilization), by:{zvm.host.name}\n| lookup [\n    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n    | filter in(zvm.lpar.name, array($lpar))\n  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n| filter in(zvm.host.name, array($system))",
       "visualization": "lineChart",
-      "dql": "timeseries avg(zvm.system.cpu.utilization), by:{zvm.host.name}"
+      "visualizationSettings": {},
+      "querySettings": {}
     },
-    {
+    "2": {
+      "type": "data",
       "title": "Guest CPU time",
-      "description": "Rate is not a DQL function here. The tile shows the cumulative counter. Use the metric browser rate transformation in the dashboard UI if you need cores.",
+      "description": "Cumulative guest CPU counter for the selected guest, system, and LPAR. Apply a rate in the tile if you need cores. DQL timeseries does not take a PromQL rate().",
+      "query": "timeseries avg(zvm.guest.cpu.time), by:{zvm.host.name, zvm.guest.id}\n| lookup [\n    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n    | filter in(zvm.lpar.name, array($lpar))\n  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n| filter in(zvm.host.name, array($system))\n| filter in(zvm.guest.id, array($guest))",
       "visualization": "lineChart",
-      "dql": "timeseries avg(zvm.guest.cpu.time), by:{zvm.guest.id, zvm.host.name}"
+      "visualizationSettings": {},
+      "querySettings": {}
     },
-    {
+    "3": {
+      "type": "data",
       "title": "OneAgent CPU steal",
-      "description": "builtin:host.cpu.steal from OneAgent, percent. Empty until the Linux guest is monitored by OneAgent.",
+      "description": "builtin:host.cpu.steal from OneAgent, percent. Empty until the Linux guest is monitored by OneAgent. This tile does not use the z/VM LPAR variable.",
+      "query": "timeseries avg(builtin:host.cpu.steal), by:{dt.entity.host}",
       "visualization": "lineChart",
-      "dql": "timeseries avg(builtin:host.cpu.steal), by:{dt.entity.host}"
+      "visualizationSettings": {},
+      "querySettings": {}
     },
-    {
+    "4": {
+      "type": "data",
       "title": "OneAgent CPU usage",
-      "description": "builtin:host.cpu.usage. Compare with steal. Usage without steal is work inside Linux.",
+      "description": "builtin:host.cpu.usage. Compare with steal. Usage without steal is work inside Linux. This tile does not use the z/VM LPAR variable.",
+      "query": "timeseries avg(builtin:host.cpu.usage), by:{dt.entity.host}",
       "visualization": "lineChart",
-      "dql": "timeseries avg(builtin:host.cpu.usage), by:{dt.entity.host}"
+      "visualizationSettings": {},
+      "querySettings": {}
     }
-  ]
+  },
+  "layouts": {
+    "0": {
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2
+    },
+    "1": {
+      "x": 0,
+      "y": 2,
+      "w": 12,
+      "h": 8
+    },
+    "2": {
+      "x": 12,
+      "y": 2,
+      "w": 12,
+      "h": 8
+    },
+    "3": {
+      "x": 0,
+      "y": 10,
+      "w": 12,
+      "h": 8
+    },
+    "4": {
+      "x": 12,
+      "y": 10,
+      "w": 12,
+      "h": 8
+    }
+  },
+  "settings": {
+    "defaultTimeframe": {
+      "enabled": true,
+      "value": {
+        "from": "now()-6h",
+        "to": "now()"
+      }
+    }
+  }
 }

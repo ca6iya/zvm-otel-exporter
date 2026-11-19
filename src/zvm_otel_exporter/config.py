@@ -88,6 +88,9 @@ class IdentityConfig:
     environment: str = ""
     ssi_name: str = ""
     arch: str = ""
+    hypervisor: str = ""
+    exporter_guest: str = ""
+    vm_level: str = ""
 
 
 @dataclass
@@ -400,6 +403,9 @@ _IDENTITY_KEYS = (
     "environment",
     "ssi_name",
     "arch",
+    "hypervisor",
+    "exporter_guest",
+    "vm_level",
 )
 
 
@@ -545,6 +551,9 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
         "ZVM_EXPORTER_IDENTITY_ENVIRONMENT": "environment",
         "ZVM_EXPORTER_IDENTITY_SSI_NAME": "ssi_name",
         "ZVM_EXPORTER_IDENTITY_ARCH": "arch",
+        "ZVM_EXPORTER_IDENTITY_HYPERVISOR": "hypervisor",
+        "ZVM_EXPORTER_IDENTITY_EXPORTER_GUEST": "exporter_guest",
+        "ZVM_EXPORTER_IDENTITY_VM_LEVEL": "vm_level",
     }
     for env_name, field_name in env_identity.items():
         if env_name in env:
