@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from zvm_otel_exporter import __version__
 from zvm_otel_exporter.config import Config
+from zvm_otel_exporter.events import EventSource, view_from_samples
 from zvm_otel_exporter.feilong import (
     FeilongAuthError,
     FeilongClient,
@@ -75,6 +76,7 @@ class Collector:
         else:
             self.vmcp = None
         self.identity = IdentitySource(config.identity)
+        self.events = EventSource(config.events)
 
     def collect(self) -> Snapshot:
         started = time.perf_counter()
@@ -118,6 +120,9 @@ class Collector:
             stale = bool(carried)
         duration = time.perf_counter() - started
         samples = [*zvm_samples, *self._exporter_samples(up, stale, duration)]
+        feilong_up = up if self.config.feilong.enabled else None
+        self.events.observe(view_from_samples(samples, feilong_up=feilong_up))
+        samples.extend(self.events.counter_samples())
         log.info(
             "scrape finished up=%s stale=%s series=%s api_errors=%s duration=%.3fs",
             up,

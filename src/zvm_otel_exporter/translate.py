@@ -246,7 +246,26 @@ def guest_stat_samples(host: str, stats: object) -> list[Sample]:
         _add(samples, "zvm.guest.memory.total", raw.get("total_memory"), base, _KIB)
         _add(samples, "zvm.guest.memory.available", raw.get("available_memory"), base, _KIB)
         _add(samples, "zvm.guest.memory.free", raw.get("free_memory"), base, _KIB)
+        member = _guest_member(raw)
+        if member:
+            samples.append(
+                Sample(
+                    "zvm.guest.location",
+                    1.0,
+                    {**base, "zvm.ssi.member": member},
+                )
+            )
     return samples
+
+
+def _guest_member(raw: Mapping[str, object]) -> str:
+    for key in ("ssi_member", "member_system_id", "host_system"):
+        value = raw.get(key)
+        if value:
+            text = str(value).strip()
+            if text:
+                return text
+    return ""
 
 
 def _direction(

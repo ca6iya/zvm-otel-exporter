@@ -41,7 +41,7 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "# z/VM capacity\n\nMemory overcommit is guest total over host limit. Forecast tiles append the DQL forecast command. All four tiles follow the system and LPAR variables."
+      "content": "# z/VM capacity\n\nMemory overcommit is guest total over host limit. Forecast tiles append the DQL forecast command. All four tiles follow the system and LPAR variables.\n\nState-change logs, when events are enabled: `fetch logs | filter event.name startsWith \"zvm.\"`"
     },
     "1": {
       "type": "data",
@@ -77,7 +77,7 @@
       "x": 0,
       "y": 0,
       "w": 24,
-      "h": 2
+      "h": 3
     },
     "1": {
       "x": 0,

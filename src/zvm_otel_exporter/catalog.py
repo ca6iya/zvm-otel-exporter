@@ -286,6 +286,13 @@ CATALOG: dict[str, MetricDef] = {
             "1",
             ("zvm.host.name", "zvm.guest.id", "zvm.power.state"),
         ),
+        _g(
+            "zvm.guest.location",
+            "1 when a guest stat payload already includes an SSI member or host system. "
+            "No series is emitted when that field is absent. No extra API call.",
+            "1",
+            ("zvm.host.name", "zvm.guest.id", "zvm.ssi.member"),
+        ),
         _c(
             "zvm.guest.network.io",
             "Bytes received or transmitted on a guest NIC (nic_rx / nic_tx).",
@@ -382,6 +389,14 @@ CATALOG: dict[str, MetricDef] = {
                 "zvm.pcif.type",
                 "zvm.guest.id",
             ),
+        ),
+        _c(
+            "zvm.events",
+            "State-change events detected since the process started. "
+            "The event label is a fixed set. Guest ids are not labels. "
+            "Present only when events.enabled is true.",
+            "1",
+            ("event",),
         ),
         _g(
             "zvm.exporter.info",

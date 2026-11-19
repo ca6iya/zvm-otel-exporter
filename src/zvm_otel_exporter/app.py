@@ -10,8 +10,9 @@ import threading
 
 from zvm_otel_exporter.collector import Collector
 from zvm_otel_exporter.config import Config
+from zvm_otel_exporter.events import emit_log_records
 from zvm_otel_exporter.feilong import FeilongClient
-from zvm_otel_exporter.otel import SnapshotStore, start_otel
+from zvm_otel_exporter.otel import SnapshotStore, start_logs, start_otel
 from zvm_otel_exporter.prometheus import render_prometheus
 from zvm_otel_exporter.server import ExporterHTTPServer, serve
 
@@ -28,6 +29,7 @@ class ExporterApp:
         self.httpd: ExporterHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._otel = None
+        self._logs = None
         self._closed = False
 
     def start(self) -> None:
@@ -43,6 +45,11 @@ class ExporterApp:
                 "OTLP export enabled protocol=%s",
                 self.config.otlp.protocol,
             )
+            if self.config.events.enabled:
+                self._logs = start_logs(
+                    self.config.otlp,
+                    self.collector.identity.resource_attributes(),
+                )
         self._publish()
         if self.config.prometheus_enabled:
             self.httpd = serve(self.config.server.listen, self.config.server.port, self.store)
@@ -68,9 +75,16 @@ class ExporterApp:
                 export_interval_ms=3_600_000,
                 resource_attributes=self.collector.identity.resource_attributes(),
             )
+            if self.config.events.enabled:
+                self._logs = start_logs(
+                    self.config.otlp,
+                    self.collector.identity.resource_attributes(),
+                )
         snapshot = self._publish()
         if self._otel is not None:
             self._otel.force_flush()
+        if self._logs is not None:
+            self._logs.force_flush()
         if self.config.prometheus_enabled:
             import sys
 
@@ -93,11 +107,16 @@ class ExporterApp:
         if self._otel is not None:
             self._otel.shutdown()
             self._otel = None
+        if self._logs is not None:
+            self._logs.shutdown()
+            self._logs = None
         self.client.close()
 
     def _publish(self):
         snapshot = self.collector.collect()
         self.store.update(snapshot)
+        if self._logs is not None and self.collector.events.records:
+            emit_log_records(self._logs.logger, self.collector.events.records)
         return snapshot
 
     def _loop(self) -> None:

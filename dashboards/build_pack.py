@@ -108,12 +108,15 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
         "annotations": {
             "list": [
                 {
-                    "name": "Capacity threshold",
-                    "enable": False,
+                    "name": "z/VM events",
+                    "enable": True,
                     "hide": False,
-                    "iconColor": "red",
+                    "iconColor": "blue",
                     "datasource": DS,
-                    "target": {"refId": "A", "limit": 100},
+                    "target": {
+                        "expr": "changes(zvm_events_total[5m]) > 0",
+                        "refId": "A",
+                    },
                 }
             ]
         },
@@ -308,6 +311,17 @@ FLEET = [
         w=12,
         h=8,
         legend="smapi",
+    ),
+    _panel(
+        9,
+        "Events since start",
+        "Cumulative zvm_events_total by event name. The series exists only when events.enabled is true. Guest ids are not labels. A rise is a logon, logoff, relocate, or health change, not a capacity alarm.",
+        "zvm_events_total",
+        x=0,
+        y=32,
+        w=24,
+        h=8,
+        legend="{{event}}",
     ),
 ]
 
@@ -713,8 +727,17 @@ def _dyn_dashboard(title: str, summary: str, tiles: list[dict]) -> dict:
     (version, variables, tiles, layouts), which is what Download writes.
     """
 
-    body_tiles: dict[str, dict] = {"0": {"type": "markdown", "content": f"# {title}\n\n{summary}"}}
-    layouts: dict[str, dict] = {"0": {"x": 0, "y": 0, "w": 24, "h": 2}}
+    body_tiles: dict[str, dict] = {
+        "0": {
+            "type": "markdown",
+            "content": (
+                f"# {title}\n\n{summary}\n\n"
+                "State-change logs, when events are enabled: "
+                '`fetch logs | filter event.name startsWith "zvm."`'
+            ),
+        }
+    }
+    layouts: dict[str, dict] = {"0": {"x": 0, "y": 0, "w": 24, "h": 3}}
     for index, tile in enumerate(tiles, start=1):
         key = str(index)
         body_tiles[key] = {

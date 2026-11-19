@@ -41,7 +41,7 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "# z/VM and Linux diagnosis\n\nPut z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work. OneAgent tiles are not filtered by the z/VM LPAR variable."
+      "content": "# z/VM and Linux diagnosis\n\nPut z/VM CPU next to OneAgent steal so a slow application can be split into guest wait versus guest work. OneAgent tiles are not filtered by the z/VM LPAR variable.\n\nState-change logs, when events are enabled: `fetch logs | filter event.name startsWith \"zvm.\"`"
     },
     "1": {
       "type": "data",
@@ -77,7 +77,7 @@
       "x": 0,
       "y": 0,
       "w": 24,
-      "h": 2
+      "h": 3
     },
     "1": {
       "x": 0,
