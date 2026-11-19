@@ -1,3 +1,4 @@
+# Copyright 2026 z/VM OTel Exporter contributors
 # SPDX-License-Identifier: Apache-2.0
 """Write the Grafana and Dynatrace dashboard pack. Not used at runtime."""
 
@@ -193,6 +194,7 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
                     "query": {"query": "label_values(node_uname_info, instance)", "refId": "A"},
                     "refresh": 2,
                     "includeAll": True,
+                    "allValue": ".*",
                     "multi": True,
                     "current": {},
                     "sort": 1,
@@ -239,7 +241,7 @@ FLEET = [
         y=4,
         w=6,
         h=4,
-        legend="{{zvm_host_name}}",
+        legend="{{instance}}",
     ),
     _panel(
         4,
@@ -632,10 +634,10 @@ groups:
         expr: sum by (zvm_host_name) (zvm_guest_memory_total_bytes) / zvm_host_memory_limit_bytes > 3
         for: 30m
         labels:
-          severity: critical
+          severity: warning
         annotations:
           summary: Guest memory is more than 3 times LPAR memory
-          description: Defined guest memory is far above real LPAR memory. New work will page.
+          description: Defined guest memory is far above real LPAR memory. Warning only, same policy as paging and spool. This does not page.
       - alert: ZvmPagingForecast
         expr: predict_linear(zvm_paging_utilization[6h], 86400 * 7) > 0.9
         for: 1h
@@ -671,9 +673,6 @@ groups:
 """
 
 
-_ALL = ["3420b2ac-f1cf-4b24-b62d-61ba1ba8ed05*"]
-
-
 def _dyn_var(key: str, query: str) -> dict:
     return {
         "version": 2,
@@ -682,7 +681,7 @@ def _dyn_var(key: str, query: str) -> dict:
         "visible": True,
         "editable": True,
         "multiple": True,
-        "defaultValue": list(_ALL),
+        "defaultValue": ["*"],
         "input": query,
     }
 
@@ -724,8 +723,6 @@ def _dyn_dashboard(title: str, summary: str, tiles: list[dict]) -> dict:
             "description": tile["description"],
             "query": tile["query"],
             "visualization": tile["visualization"],
-            "visualizationSettings": {},
-            "querySettings": {},
         }
         layouts[key] = {"x": tile["x"], "y": tile["y"], "w": tile["w"], "h": tile["h"]}
     return {
@@ -807,7 +804,6 @@ def _event(
                 "description": description,
                 "eventType": "AVAILABILITY" if severity == "critical" else "RESOURCE_CONTENTION",
                 "davisMerge": True,
-                "severity": severity,
             },
         },
         "fileName": name,
@@ -819,7 +815,7 @@ EVENTS_SPEC = [
         "zvm-exporter-missing.json",
         "z/VM exporter metrics are missing",
         "No zvm.exporter.up samples arrived. The process stopped sending OTLP. This is not a Feilong failure. alertOnNoData is set and the threshold is below any real value so a present 0 does not fire this event.",
-        "zvm.exporter.up:last",
+        "zvm.exporter.up:avg",
         -1,
         "critical",
         5,
@@ -831,7 +827,7 @@ EVENTS_SPEC = [
         "zvm-feilong-down.json",
         "Feilong host collection is failing",
         "zvm.exporter.up is present and below 1, so the process is exporting and Feilong host collection failed. alertOnNoData is false so a dead process does not also raise this event.",
-        "zvm.exporter.up:last",
+        "zvm.exporter.up:avg",
         1,
         "critical",
         5,
@@ -843,13 +839,23 @@ EVENTS_SPEC = [
         "zvm-smapi-down.json",
         "SMAPI is unhealthy",
         "zvm.smapi.healthy is present and below 1. Guest stats may be missing while the process and Feilong host collection are still up.",
-        "zvm.smapi.healthy:last",
+        "zvm.smapi.healthy:avg",
         1,
         "warning",
         5,
         3,
         "BELOW",
         False,
+    ),
+    _event(
+        "zvm-overcommit-high.json",
+        "Guest memory exceeds LPAR memory",
+        "Sum of zvm.guest.memory.total divided by zvm.host.memory.limit is above 1.5. Warning only, same policy as paging and spool. There is no critical overcommit event.",
+        "(zvm.guest.memory.total:sum)/(zvm.host.memory.limit:avg)",
+        1.5,
+        "warning",
+        5,
+        3,
     ),
     _event(
         "zvm-cpu-high.json",
@@ -944,7 +950,7 @@ def main() -> None:
     dyn = {
         "zvm-fleet.json": _dyn_dashboard(
             "z/VM fleet",
-            "Fleet status from OTLP metrics. The system variable lists hosts. The LPAR variable lists LPARs on those hosts. Tiles keep a host only when zvm.system.info matches both.",
+            "Fleet status from OTLP metrics. The system variable lists hosts. The LPAR variable lists LPARs on those hosts. Host tiles keep a host only when zvm.system.info matches both. Exporter up has no host attribute, so that tile is not filtered.",
             [
                 _tile(
                     "CPU by system",
@@ -957,8 +963,8 @@ def main() -> None:
                 ),
                 _tile(
                     "Exporter up",
-                    "1 when the last Feilong host scrape worked. 0 means Feilong failed while the process was still exporting. A missing series is the separate missing-data event, not this tile.",
-                    _scoped_dql("zvm.exporter.up"),
+                    "1 when the last Feilong host scrape worked. 0 means Feilong failed while the process was still exporting. zvm.exporter.up has no host attribute, so this tile is not split by host or LPAR. A missing series is the separate missing-data event.",
+                    "timeseries avg(zvm.exporter.up)",
                     12,
                     2,
                     12,

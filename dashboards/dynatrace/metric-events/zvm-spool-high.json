@@ -21,8 +21,7 @@
       "title": "z/VM spool space above 80 percent",
       "description": "zvm.spool.utilization stayed above 0.8. Warning only.",
       "eventType": "RESOURCE_CONTENTION",
-      "davisMerge": true,
-      "severity": "warning"
+      "davisMerge": true
     }
   }
 }

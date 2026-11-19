@@ -81,21 +81,21 @@ JSON dashboard files have no SPDX line because JSON comments are not valid. The 
 | ZvmLinuxStealHigh | warning | 15m | steal above 10 percent |
 | ZvmLinuxStealCritical | critical | 15m | steal above 25 percent |
 | ZvmMemoryOvercommitHigh | warning | 30m | guest total memory over 1.5 times the LPAR |
-| ZvmMemoryOvercommitCritical | critical | 30m | guest total memory over 3 times the LPAR |
+| ZvmMemoryOvercommitCritical | warning | 30m | guest total memory over 3 times the LPAR |
 | ZvmPagingForecast | warning | 1h | 7-day projection of paging above 90 percent |
 | ZvmSpoolForecast | warning | 1h | 7-day projection of spool above 90 percent |
 | ZvmPagingHigh | warning | 30m | paging above 80 percent |
 | ZvmSpoolHigh | warning | 30m | spool above 80 percent |
 
-Paging and spool alerts are warning only. They are not availability incidents.
+Paging, spool, and memory overcommit alerts are warning only. They are not availability incidents. The 3x overcommit rule is still named `ZvmMemoryOvercommitCritical`, and its severity is warning.
 
 ## Dynatrace
 
 Send OTLP metrics to `https://{env}.live.dynatrace.com/api/v2/otlp/v1/metrics` with an API token that has `metrics.ingest`. The exporter's OTel names are the metric keys (`zvm.system.cpu.utilization`, not the Prometheus underscore form). Resource attributes from process start use the same keys as `zvm.system.info`, including `host.name`, `host.arch`, `deployment.environment.name`, and `zvm.lpar.name`. `host.id` is not set.
 
-The files in `dashboards/dynatrace/zvm-*.json` are Dynatrace Dashboards documents, schema version 21: `version`, `variables`, `tiles`, and `layouts`. That is the JSON Download writes from the Dashboards app. To import one, open Dashboards and select Upload, then choose the file. Each data tile has `type` `data`, a DQL `query`, `visualization`, `visualizationSettings`, and `querySettings`. A markdown tile at the top is the title, because the document content has no separate name field. The upload uses the file as the dashboard. Variables `system`, `lpar`, and `guest` are query variables. `lpar` depends on `system`. z/VM tiles look up `zvm.system.info` so a host remains only when its LPAR is selected. OneAgent tiles are not filtered by LPAR. The guest CPU tile is the cumulative counter. Apply a rate in the tile if you need cores.
+The files in `dashboards/dynatrace/zvm-*.json` are Dynatrace Dashboards documents, schema version 21: `version`, `variables`, `tiles`, and `layouts`. That is the JSON Download writes from the Dashboards app. To import one, open Dashboards and select Upload, then choose the file. Each data tile has `type` `data`, a DQL `query`, and `visualization`. Empty `visualizationSettings` and `querySettings` objects are omitted. Variable defaults are `*`, not a tenant id. A markdown tile at the top is the title, because the document content has no separate name field. The upload uses the file as the dashboard. Variables `system`, `lpar`, and `guest` are query variables. `lpar` depends on `system`. z/VM tiles look up `zvm.system.info` so a host remains only when its LPAR is selected. OneAgent tiles are not filtered by LPAR. The guest CPU tile is the cumulative counter. Apply a rate in the tile if you need cores.
 
-`dashboards/dynatrace/metric-events/*.json` follows the Settings schema `builtin:anomaly-detection.metric-events`. Load them with the Settings API or Monaco (`POST /api/v2/settings/objects`). `violatingSamples` is at least 3 out of `samples`. `zvm-exporter-missing.json` sets `alertOnNoData` to true and a threshold below any real value, so it fires when the metric stops arriving and does not fire when the value is 0. `zvm-feilong-down.json` fires when `zvm.exporter.up` is present and below 1, with `alertOnNoData` false. `zvm-smapi-down.json` is the SMAPI warning. Confirm `builtin:host.cpu.steal` in your metric browser before enabling the steal event. Paging and spool events are warning.
+`dashboards/dynatrace/metric-events/*.json` follows the Settings schema `builtin:anomaly-detection.metric-events`. Load them with the Settings API or Monaco (`POST /api/v2/settings/objects`). `violatingSamples` is at least 3 out of `samples`. Selectors use the `:avg` fold. The schema has no `severity` field. `eventType` is `AVAILABILITY` or `RESOURCE_CONTENTION`. `zvm-exporter-missing.json` sets `alertOnNoData` to true and a threshold below any real value, so it fires when the metric stops arriving and does not fire when the value is 0. `zvm-feilong-down.json` fires when `zvm.exporter.up` is present and its average is below 1, with `alertOnNoData` false. `zvm-smapi-down.json` is the SMAPI warning. `zvm-overcommit-high.json` is the guest-total over host-limit ratio above 1.5, and it is `RESOURCE_CONTENTION` only. Confirm `builtin:host.cpu.steal` in your metric browser before enabling the steal event. Paging, spool, and overcommit events are warning.
 
 ## Comparison
 

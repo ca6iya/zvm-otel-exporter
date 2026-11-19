@@ -6,7 +6,7 @@
     "summary": "z/VM exporter metrics are missing",
     "queryDefinition": {
       "type": "METRIC_SELECTOR",
-      "metricSelector": "zvm.exporter.up:last"
+      "metricSelector": "zvm.exporter.up:avg"
     },
     "modelProperties": {
       "type": "STATIC_THRESHOLD",
@@ -21,8 +21,7 @@
       "title": "z/VM exporter metrics are missing",
       "description": "No zvm.exporter.up samples arrived. The process stopped sending OTLP. This is not a Feilong failure. alertOnNoData is set and the threshold is below any real value so a present 0 does not fire this event.",
       "eventType": "AVAILABILITY",
-      "davisMerge": true,
-      "severity": "critical"
+      "davisMerge": true
     }
   }
 }

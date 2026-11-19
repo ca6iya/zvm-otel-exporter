@@ -6,7 +6,7 @@
     "summary": "SMAPI is unhealthy",
     "queryDefinition": {
       "type": "METRIC_SELECTOR",
-      "metricSelector": "zvm.smapi.healthy:last"
+      "metricSelector": "zvm.smapi.healthy:avg"
     },
     "modelProperties": {
       "type": "STATIC_THRESHOLD",
@@ -21,8 +21,7 @@
       "title": "SMAPI is unhealthy",
       "description": "zvm.smapi.healthy is present and below 1. Guest stats may be missing while the process and Feilong host collection are still up.",
       "eventType": "RESOURCE_CONTENTION",
-      "davisMerge": true,
-      "severity": "warning"
+      "davisMerge": true
     }
   }
 }

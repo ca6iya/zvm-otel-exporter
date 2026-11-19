@@ -21,8 +21,7 @@
       "title": "Linux CPU steal above 10 percent",
       "description": "OneAgent host CPU steal stayed above 10 percent. Requires the host to be monitored by OneAgent.",
       "eventType": "RESOURCE_CONTENTION",
-      "davisMerge": true,
-      "severity": "warning"
+      "davisMerge": true
     }
   }
 }

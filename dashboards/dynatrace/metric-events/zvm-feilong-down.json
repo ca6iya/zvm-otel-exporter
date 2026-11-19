@@ -6,7 +6,7 @@
     "summary": "Feilong host collection is failing",
     "queryDefinition": {
       "type": "METRIC_SELECTOR",
-      "metricSelector": "zvm.exporter.up:last"
+      "metricSelector": "zvm.exporter.up:avg"
     },
     "modelProperties": {
       "type": "STATIC_THRESHOLD",
@@ -21,8 +21,7 @@
       "title": "Feilong host collection is failing",
       "description": "zvm.exporter.up is present and below 1, so the process is exporting and Feilong host collection failed. alertOnNoData is false so a dead process does not also raise this event.",
       "eventType": "AVAILABILITY",
-      "davisMerge": true,
-      "severity": "critical"
+      "davisMerge": true
     }
   }
 }

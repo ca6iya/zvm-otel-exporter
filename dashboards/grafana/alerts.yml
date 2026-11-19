@@ -114,10 +114,10 @@ groups:
         expr: sum by (zvm_host_name) (zvm_guest_memory_total_bytes) / zvm_host_memory_limit_bytes > 3
         for: 30m
         labels:
-          severity: critical
+          severity: warning
         annotations:
           summary: Guest memory is more than 3 times LPAR memory
-          description: Defined guest memory is far above real LPAR memory. New work will page.
+          description: Defined guest memory is far above real LPAR memory. Warning only, same policy as paging and spool. This does not page.
       - alert: ZvmPagingForecast
         expr: predict_linear(zvm_paging_utilization[6h], 86400 * 7) > 0.9
         for: 1h

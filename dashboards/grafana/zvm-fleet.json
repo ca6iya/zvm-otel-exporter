@@ -119,6 +119,7 @@
         },
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": true,
         "current": {},
         "sort": 1
@@ -243,7 +244,7 @@
         {
           "expr": "zvm_exporter_up",
           "refId": "A",
-          "legendFormat": "{{zvm_host_name}}"
+          "legendFormat": "{{instance}}"
         }
       ],
       "fieldConfig": {

@@ -1,3 +1,4 @@
+# Copyright 2026 z/VM OTel Exporter contributors
 # SPDX-License-Identifier: Apache-2.0
 """z/VM system and LPAR identity from /proc/sysinfo, Feilong, and overrides.
 

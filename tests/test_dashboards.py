@@ -60,6 +60,7 @@ def test_grafana_dashboards_are_described_and_reference_real_metrics() -> None:
         assert 'zvm_host_name=~"$system"' in lpar_query
         assert "zvm_lpar_name" in lpar_query
         assert 'zvm_lpar_name=~"$lpar"' in variables["guest"]["definition"]
+        assert variables["linux_instance"]["allValue"] == ".*"
         for panel in body["panels"]:
             assert panel["title"]
             assert len(panel["description"]) > 40
@@ -97,6 +98,9 @@ def test_prometheus_alerts_have_severity_and_duration() -> None:
     assert by_name["ZvmFeilongDown"]["expr"] == "zvm_exporter_up == 0"
     assert by_name["ZvmSmapiDown"]["expr"] == "zvm_smapi_healthy == 0"
     assert "zvm-otel-exporter" in by_name["ZvmExporterProcessDown"]["annotations"]["description"]
+    overcommit = [alert for alert in alerts if "Overcommit" in alert["alert"]]
+    assert overcommit
+    assert all(alert["labels"]["severity"] == "warning" for alert in overcommit)
     text = (GRAFANA / "alerts.yml").read_text(encoding="utf-8")
     assert text.startswith("# SPDX-License-Identifier: Apache-2.0\n")
     promtool = shutil.which("promtool")
@@ -146,13 +150,15 @@ def test_dynatrace_queries_use_catalog_or_oneagent_metrics() -> None:
         assert "$system" in next(
             item["input"] for item in body["variables"] if item["key"] == "lpar"
         )
+        for variable in body["variables"]:
+            assert variable["defaultValue"] == ["*"]
         for tile in body["tiles"].values():
             assert tile["type"] in {"data", "markdown"}
             if tile["type"] != "data":
                 continue
             assert tile["visualization"]
-            assert "visualizationSettings" in tile
-            assert "querySettings" in tile
+            assert "visualizationSettings" not in tile
+            assert "querySettings" not in tile
             assert len(tile["description"]) > 20
             for name in _OTEL.findall(tile["query"]):
                 assert name in catalog or name in dimensions, name
@@ -173,9 +179,16 @@ def test_dynatrace_queries_use_catalog_or_oneagent_metrics() -> None:
             metric = ":".join(selector.split(":")[:2])
             assert metric in ONEAGENT_METRICS
         else:
-            metric = selector.split(":", 1)[0]
-            assert metric in catalog
-        assert body["value"]["eventTemplate"]["severity"] in {"warning", "critical"}
+            names = _OTEL.findall(selector)
+            assert names
+            for name in names:
+                assert name in catalog
+        assert "severity" not in body["value"]["eventTemplate"]
+        assert body["value"]["eventTemplate"]["eventType"] in {
+            "AVAILABILITY",
+            "RESOURCE_CONTENTION",
+        }
+        assert ":last" not in selector
         assert body["value"]["modelProperties"]["violatingSamples"] >= 3
         assert "alertOnNoData" in body["value"]["modelProperties"]
 
@@ -189,3 +202,17 @@ def test_dashboard_doc_mentions_perfkit_and_prerequisites() -> None:
     assert "zvm-otel-exporter" in text
     assert "version 21" in text
     assert "JSON comments" in text
+    fleet = json.loads((GRAFANA / "zvm-fleet.json").read_text(encoding="utf-8"))
+    exporter_up = next(panel for panel in fleet["panels"] if panel["title"] == "Exporter up")
+    assert exporter_up["targets"][0]["legendFormat"] == "{{instance}}"
+    dyn_fleet = json.loads((DYNATRACE / "zvm-fleet.json").read_text(encoding="utf-8"))
+    up_tile = next(
+        tile for tile in dyn_fleet["tiles"].values() if tile.get("title") == "Exporter up"
+    )
+    assert up_tile["query"] == "timeseries avg(zvm.exporter.up)"
+    pack = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "dashboards").rglob("*")
+        if path.is_file()
+    )
+    assert "3420b2ac" not in pack

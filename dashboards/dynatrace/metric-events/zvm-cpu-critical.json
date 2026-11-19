@@ -21,8 +21,7 @@
       "title": "z/VM CPU above 95 percent",
       "description": "zvm.system.cpu.utilization stayed above 0.95.",
       "eventType": "AVAILABILITY",
-      "davisMerge": true,
-      "severity": "critical"
+      "davisMerge": true
     }
   }
 }

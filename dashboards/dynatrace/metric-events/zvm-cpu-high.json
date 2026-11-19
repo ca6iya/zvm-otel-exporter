@@ -21,8 +21,7 @@
       "title": "z/VM CPU above 85 percent",
       "description": "zvm.system.cpu.utilization stayed above 0.85. Compare with guest CPU and host steal.",
       "eventType": "RESOURCE_CONTENTION",
-      "davisMerge": true,
-      "severity": "warning"
+      "davisMerge": true
     }
   }
 }

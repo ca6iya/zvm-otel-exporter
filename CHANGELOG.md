@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Exporter process down is a separate alert from Feilong down and from SMAPI down. The process alert assumes the Prometheus job name `zvm-otel-exporter`.
 - The LPAR dashboard variable is limited to the selected system and is applied to z/VM panels.
 - `VM00 Name` is recorded as the exporter guest userid, not as the z/VM system name. `VM01` marks a second-level guest.
+- Memory overcommit alerts are warning only. Dynatrace metric events drop the unsupported `severity` field and use the `:avg` fold.
 
 ## [0.1.0] - 2026-11-18
 
