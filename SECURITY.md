@@ -2,11 +2,12 @@
 
 ## Supported versions
 
-Security fixes apply to the latest 0.1.x release and to the `main` branch. A newer minor line, when one exists, will be announced in [CHANGELOG.md](CHANGELOG.md).
+Security fixes apply to the latest 0.2.x release and to the `main` branch.
 
 | Version | Supported |
 | --- | --- |
-| 0.1.x | yes |
+| 0.2.x | yes |
+| 0.1.x | no |
 | `main` | yes |
 
 ## Reporting a vulnerability

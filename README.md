@@ -51,7 +51,7 @@ Guest, NIC, and disk series are not stamped with the LPAR label. Join them to `z
 
 ## Release
 
-The latest release is [0.1.0](https://github.com/ca6iya/zvm-otel-exporter/releases/tag/v0.1.0) (2026-11-18). The package version in `pyproject.toml` and `__version__` is 0.1.0. The change history is [CHANGELOG.md](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. How a maintainer cuts a release is in [RELEASE.md](RELEASE.md).
+The latest release is [0.2.0](https://github.com/ca6iya/zvm-otel-exporter/releases/tag/v0.2.0) (2026-11-18). The package version in `pyproject.toml` and `__version__` is 0.2.0. The change history is [CHANGELOG.md](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. How a maintainer cuts a release is in [RELEASE.md](RELEASE.md).
 
 ## Usage
 

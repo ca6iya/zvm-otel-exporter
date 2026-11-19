@@ -1,6 +1,6 @@
 # Release process
 
-Maintainers cut releases. The first release is v0.1.0.
+Maintainers cut releases. The current release is v0.2.0.
 
 1. Confirm `main` is green on the CI workflow.
 2. Update the version in `pyproject.toml` and `src/zvm_otel_exporter/__init__.py` so they match.
