@@ -60,4 +60,29 @@ collectors:
   smapi: true
   version: true
 
+# Labels for the z/VM system and the LPAR. Empty values are filled from
+# /proc/sysinfo (at most every 10 minutes, at most 64 KiB) and from Feilong
+# host data the scrape already collected. A non-empty value always wins.
+# VM00 Name is the guest userid, not the z/VM system name. Set system_name
+# and host_name here when Feilong is off. This exporter does not run
+# QUERY USERID.
+identity:
+  sysinfo_path: /proc/sysinfo
+  interval: 600
+  host_name: ""
+  system_name: ""
+  lpar_name: ""
+  lpar_number: ""
+  cpc_type: ""
+  cpc_model: ""
+  cpc_sequence: ""
+  cpc_plant: ""
+  site: ""
+  environment: ""
+  ssi_name: ""
+  arch: ""
+  hypervisor: ""
+  exporter_guest: ""
+  vm_level: ""
+
 log_level: INFO

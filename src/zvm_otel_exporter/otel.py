@@ -78,7 +78,12 @@ def metrics_endpoint(endpoint: str, protocol: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 
 
-def start_otel(config: OtlpConfig, store: SnapshotStore, export_interval_ms: int) -> OtelRuntime:
+def start_otel(
+    config: OtlpConfig,
+    store: SnapshotStore,
+    export_interval_ms: int,
+    resource_attributes: dict[str, str] | None = None,
+) -> OtelRuntime:
     endpoint = metrics_endpoint(config.endpoint, config.protocol)
     headers = dict(config.headers)
     if config.protocol == "grpc":
@@ -109,6 +114,7 @@ def start_otel(config: OtlpConfig, store: SnapshotStore, export_interval_ms: int
             {
                 "service.name": "zvm-otel-exporter",
                 "service.version": __version__,
+                **{key: value for key, value in (resource_attributes or {}).items() if value},
             }
         ),
     )

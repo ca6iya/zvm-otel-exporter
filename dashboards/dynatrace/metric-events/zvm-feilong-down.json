@@ -1,0 +1,27 @@
+{
+  "schemaId": "builtin:anomaly-detection.metric-events",
+  "scope": "environment",
+  "value": {
+    "enabled": true,
+    "summary": "Feilong host collection is failing",
+    "queryDefinition": {
+      "type": "METRIC_SELECTOR",
+      "metricSelector": "zvm.exporter.up:avg"
+    },
+    "modelProperties": {
+      "type": "STATIC_THRESHOLD",
+      "threshold": 1,
+      "alertOnNoData": false,
+      "alertCondition": "BELOW",
+      "violatingSamples": 3,
+      "samples": 5,
+      "dealertingSamples": 5
+    },
+    "eventTemplate": {
+      "title": "Feilong host collection is failing",
+      "description": "zvm.exporter.up is present and below 1, so the process is exporting and Feilong host collection failed. alertOnNoData is false so a dead process does not also raise this event.",
+      "eventType": "AVAILABILITY",
+      "davisMerge": true
+    }
+  }
+}

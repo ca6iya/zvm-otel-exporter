@@ -1,0 +1,116 @@
+{
+  "version": 21,
+  "variables": [
+    {
+      "version": 2,
+      "key": "system",
+      "type": "query",
+      "visible": true,
+      "editable": true,
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "input": "timeseries avg(zvm.system.info), by:{zvm.host.name} | fields zvm.host.name | dedup zvm.host.name"
+    },
+    {
+      "version": 2,
+      "key": "lpar",
+      "type": "query",
+      "visible": true,
+      "editable": true,
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "input": "timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name} | filter in(zvm.host.name, array($system)) | fields zvm.lpar.name | dedup zvm.lpar.name"
+    },
+    {
+      "version": 2,
+      "key": "guest",
+      "type": "query",
+      "visible": true,
+      "editable": true,
+      "multiple": true,
+      "defaultValue": [
+        "*"
+      ],
+      "input": "timeseries avg(zvm.guest.cpu.count), by:{zvm.host.name, zvm.guest.id} | lookup [ timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name} | filter in(zvm.lpar.name, array($lpar)) ], sourceField:zvm.host.name, lookupField:zvm.host.name | filter in(zvm.host.name, array($system)) | fields zvm.guest.id | dedup zvm.guest.id"
+    }
+  ],
+  "tiles": {
+    "0": {
+      "type": "markdown",
+      "content": "# z/VM capacity\n\nMemory overcommit is guest total over host limit. Forecast tiles append the DQL forecast command. All four tiles follow the system and LPAR variables."
+    },
+    "1": {
+      "type": "data",
+      "title": "Host memory",
+      "description": "LPAR memory usage from Feilong, in bytes, for the selected system and LPAR.",
+      "query": "timeseries avg(zvm.host.memory.usage), by:{zvm.host.name}\n| lookup [\n    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n    | filter in(zvm.lpar.name, array($lpar))\n  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n| filter in(zvm.host.name, array($system))",
+      "visualization": "lineChart"
+    },
+    "2": {
+      "type": "data",
+      "title": "Guest memory total",
+      "description": "Guest-reported total memory for the selected system and LPAR. Divide by host memory limit for overcommit.",
+      "query": "timeseries avg(zvm.guest.memory.total), by:{zvm.host.name}\n| lookup [\n    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n    | filter in(zvm.lpar.name, array($lpar))\n  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n| filter in(zvm.host.name, array($system))",
+      "visualization": "lineChart"
+    },
+    "3": {
+      "type": "data",
+      "title": "Paging forecast",
+      "description": "DQL forecast of paging utilization. A rising forecast through 0.9 inside a week is a warning, not an incident.",
+      "query": "timeseries avg(zvm.paging.utilization), by:{zvm.host.name}\n| lookup [\n    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n    | filter in(zvm.lpar.name, array($lpar))\n  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n| filter in(zvm.host.name, array($system))\n| forecast",
+      "visualization": "lineChart"
+    },
+    "4": {
+      "type": "data",
+      "title": "Spool forecast",
+      "description": "DQL forecast of spool utilization. Warning only.",
+      "query": "timeseries avg(zvm.spool.utilization), by:{zvm.host.name}\n| lookup [\n    timeseries avg(zvm.system.info), by:{zvm.host.name, zvm.lpar.name}\n    | filter in(zvm.lpar.name, array($lpar))\n  ], sourceField:zvm.host.name, lookupField:zvm.host.name\n| filter in(zvm.host.name, array($system))\n| forecast",
+      "visualization": "lineChart"
+    }
+  },
+  "layouts": {
+    "0": {
+      "x": 0,
+      "y": 0,
+      "w": 24,
+      "h": 2
+    },
+    "1": {
+      "x": 0,
+      "y": 2,
+      "w": 12,
+      "h": 8
+    },
+    "2": {
+      "x": 12,
+      "y": 2,
+      "w": 12,
+      "h": 8
+    },
+    "3": {
+      "x": 0,
+      "y": 10,
+      "w": 12,
+      "h": 8
+    },
+    "4": {
+      "x": 12,
+      "y": 10,
+      "w": 12,
+      "h": 8
+    }
+  },
+  "settings": {
+    "defaultTimeframe": {
+      "enabled": true,
+      "value": {
+        "from": "now()-6h",
+        "to": "now()"
+      }
+    }
+  }
+}

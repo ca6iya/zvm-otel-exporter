@@ -1,0 +1,507 @@
+{
+  "uid": "zvm-diagnosis",
+  "title": "z/VM and Linux diagnosis",
+  "description": "z/VM CPU, guest CPU, and Linux steal and memory on one board. Use it to decide whether the guest waited on the hypervisor.",
+  "schemaVersion": 39,
+  "tags": [
+    "zvm",
+    "mainframe"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "annotations": {
+    "list": [
+      {
+        "name": "Capacity threshold",
+        "enable": false,
+        "hide": false,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "target": {
+          "refId": "A",
+          "limit": 100
+        }
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1,
+        "current": {}
+      },
+      {
+        "name": "system",
+        "label": "z/VM system",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_system_info, zvm_host_name)",
+        "query": {
+          "query": "label_values(zvm_system_info, zvm_host_name)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "lpar",
+        "label": "LPAR",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
+        "query": {
+          "query": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "guest",
+        "label": "Guest",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
+        "query": {
+          "query": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "linux_instance",
+        "label": "Linux on Z",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(node_uname_info, instance)",
+        "query": {
+          "query": "label_values(node_uname_info, instance)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {},
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "z/VM CPU utilization",
+      "description": "System-wide AVGPROC from INDICATE LOAD, as a ratio. If this is high and guest steal is high, the LPAR is out of CPU. If this is low and steal is high, look at shares and other LPARs on the CPC, which this exporter does not see.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "(zvm_system_cpu_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "z/VM"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Guest CPU time",
+      "description": "Rate of virtual CPU seconds. A value of 2 means about two cores of guest CPU. Compare with zvm_guest_cpu_count_cpus. A guest using a small fraction of its defined CPUs is an oversized-CPU candidate, not a steal problem.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "(rate(zvm_guest_cpu_time_seconds_total{zvm_host_name=~\"$system\",zvm_guest_id=~\"$guest\"}[5m])) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_guest_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Linux CPU steal",
+      "description": "node_exporter steal time for the selected Linux on Z instances. Steal is time the guest was runnable and the hypervisor ran something else. High steal with high z/VM CPU means the system is busy. High steal with low z/VM CPU means look outside this LPAR.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "avg by (instance) (rate(node_cpu_seconds_total{mode=\"steal\",instance=~\"$linux_instance\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Linux load",
+      "description": "node_load1 from node_exporter. Load above the number of online Linux CPUs, together with steal, means the guest is waiting. Load without steal means the guest is busy inside Linux.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "node_load1{instance=~\"$linux_instance\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Defined guest CPUs",
+      "description": "Virtual CPUs Feilong reports for the guest. This is capacity, not usage. Pair it with Guest CPU time to see idle cores.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "(zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\",zvm_guest_id=~\"$guest\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_guest_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Guest memory in use",
+      "description": "Feilong used_mem_kb for the guest, in bytes. This is the z/VM view of the guest, not Linux MemAvailable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "(zvm_guest_memory_usage_bytes{zvm_host_name=~\"$system\",zvm_guest_id=~\"$guest\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_guest_id}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Linux memory available",
+      "description": "node_memory_MemAvailable_bytes from node_exporter. Low available memory with low steal is a Linux sizing issue. Low available memory with high steal can be the guest paging because it is not being dispatched.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "node_memory_MemAvailable_bytes{instance=~\"$linux_instance\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Linux memory size",
+      "description": "node_memory_MemTotal_bytes. Compare with the z/VM guest memory total on the capacity dashboard. A large MemTotal that sits idle is an oversized guest.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "node_memory_MemTotal_bytes{instance=~\"$linux_instance\"}",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

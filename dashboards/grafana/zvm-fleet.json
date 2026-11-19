@@ -1,0 +1,533 @@
+{
+  "uid": "zvm-fleet",
+  "title": "z/VM fleet",
+  "description": "One glance across z/VM systems. Green, yellow, and red on CPU use the 70 and 85 percent marks.",
+  "schemaVersion": 39,
+  "tags": [
+    "zvm",
+    "mainframe"
+  ],
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "annotations": {
+    "list": [
+      {
+        "name": "Capacity threshold",
+        "enable": false,
+        "hide": false,
+        "iconColor": "red",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "target": {
+          "refId": "A",
+          "limit": 100
+        }
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "refresh": 1,
+        "current": {}
+      },
+      {
+        "name": "system",
+        "label": "z/VM system",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_system_info, zvm_host_name)",
+        "query": {
+          "query": "label_values(zvm_system_info, zvm_host_name)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "lpar",
+        "label": "LPAR",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
+        "query": {
+          "query": "label_values(zvm_system_info{zvm_host_name=~\"$system\"}, zvm_lpar_name)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "guest",
+        "label": "Guest",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
+        "query": {
+          "query": "label_values((zvm_guest_cpu_count_cpus{zvm_host_name=~\"$system\"} and on(zvm_host_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}), zvm_guest_id)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {},
+        "sort": 1
+      },
+      {
+        "name": "linux_instance",
+        "label": "Linux on Z",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(node_uname_info, instance)",
+        "query": {
+          "query": "label_values(node_uname_info, instance)",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {},
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Systems reporting",
+      "description": "Count of zvm_system_info series for the selected system and LPAR. The series exists while Prometheus is scraping that exporter. zvm_exporter_up itself has no host label, so it cannot be split by LPAR.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "count(zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"})",
+          "refId": "A",
+          "legendFormat": "up"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Fleet CPU",
+      "description": "INDICATE LOAD average processor utilization for the selected system and LPAR. Green under 70 percent, yellow under 85, red at or above 85. Sustained red is a capacity conversation, not a page-space alarm.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "(zvm_system_cpu_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_host_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Exporter up",
+      "description": "1 when Feilong host collection succeeded. 0 means the process is up but Feilong failed. This series has no zvm_host_name label, so the LPAR variable does not filter it. A dead process is the Prometheus up metric, not this one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "zvm_exporter_up",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Identity",
+      "description": "One row per exporter for the selected system and LPAR. zvm_lpar_name, CPC type, and site are only on this series. Other panels join it on zvm_host_name.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Host memory used",
+      "description": "Feilong memory_mb_used divided by memory_mb. This is LPAR memory the hypervisor reports, not Linux MemAvailable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "(zvm_host_memory_usage_bytes{zvm_host_name=~\"$system\"} / zvm_host_memory_limit_bytes{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_host_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Paging space used",
+      "description": "Pages in use divided by pages allocated, from QUERY ALLOC PAGE. Trend this. A high value is a warning, not a page-fault outage by itself.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "(zvm_paging_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_host_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Spool space used",
+      "description": "Spool pages in use divided by spool pages allocated. Watch the slope. Do not page someone for a single sample.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "(zvm_spool_utilization{zvm_host_name=~\"$system\"}) * on(zvm_host_name) group_left(zvm_lpar_name) zvm_system_info{zvm_host_name=~\"$system\",zvm_lpar_name=~\"$lpar\"}",
+          "refId": "A",
+          "legendFormat": "{{zvm_host_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "SMAPI healthy",
+      "description": "1 when Feilong reports the SMAPI layer healthy. 0 means guest stats may be missing while host info still arrives. This series has no host label, so the LPAR variable does not filter it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "zvm_smapi_healthy",
+          "refId": "A",
+          "legendFormat": "smapi"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,152 @@
+# SPDX-License-Identifier: Apache-2.0
+# The job label below is the Prometheus scrape job. Name the job
+# zvm-otel-exporter, or edit this matcher to the job you actually use.
+groups:
+  - name: zvm.exporter
+    rules:
+      - alert: ZvmExporterProcessDown
+        expr: up{job="zvm-otel-exporter"} == 0 or absent(zvm_exporter_up)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: z/VM exporter process is not being scraped
+          description: Prometheus is not scraping the exporter. This rule assumes the scrape job label is zvm-otel-exporter. Change the job matcher if your configuration uses another name. up == 0 fires per target while Prometheus still remembers it. absent(zvm_exporter_up) fires when no exporter series exist at all. It does not mean Feilong failed.
+      - alert: ZvmFeilongDown
+        expr: zvm_exporter_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Feilong host collection is failing
+          description: The exporter process is being scraped and zvm_exporter_up has been 0 for 5 minutes. Feilong is unreachable or host collection failed. This is not a dead process. A dead process is ZvmExporterProcessDown.
+      - alert: ZvmSmapiDown
+        expr: zvm_smapi_healthy == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: SMAPI is reported unhealthy
+          description: zvm_smapi_healthy has been 0 for 15 minutes. Guest stats may be missing. The exporter process and Feilong host collection can still be up.
+      - alert: ZvmExporterStale
+        expr: zvm_exporter_scrape_stale == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: z/VM exporter is serving a stale snapshot
+          description: Host collection failed and previous series are still being served. Check Feilong before trusting the dashboard.
+      - alert: ZvmVmcpDown
+        expr: zvm_vmcp_up == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: vmcp commands are failing
+          description: The last vmcp pass did not succeed. Paging, spool, and system CPU utilization are missing or old. Privilege class D is required for QUERY ALLOC.
+      - alert: ZvmVmcpCacheStale
+        expr: zvm_vmcp_cache_age_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: vmcp cache is older than 15 minutes
+          description: Cache age stayed above 900 seconds. The command pass is backing off or not running.
+      - alert: ZvmVmcpFailures
+        expr: zvm_vmcp_consecutive_failures > 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: vmcp has failed more than twice in a row
+          description: Consecutive failures remain above 2. Read the exporter log for timeout, overflow, or an HCP error.
+      - alert: ZvmVmcpSlow
+        expr: zvm_vmcp_command_duration_seconds > 10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: vmcp command pass is slow
+          description: The last pass took more than 10 seconds. That is close to the timeout budget and adds load. Check that vmcp is not hanging.
+  - name: zvm.capacity
+    rules:
+      - alert: ZvmCpuHigh
+        expr: zvm_system_cpu_utilization > 0.85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: z/VM CPU utilization above 85 percent
+          description: INDICATE LOAD stayed above 85 percent for 15 minutes. Look at guest CPU time and Linux steal before adding CPUs.
+      - alert: ZvmCpuCritical
+        expr: zvm_system_cpu_utilization > 0.95
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: z/VM CPU utilization above 95 percent
+          description: INDICATE LOAD stayed above 95 percent for 15 minutes. The LPAR has almost no CPU headroom.
+      - alert: ZvmLinuxStealHigh
+        expr: avg by (instance) (rate(node_cpu_seconds_total{mode="steal"}[5m])) > 0.10
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Linux CPU steal above 10 percent
+          description: node_exporter reports steal above 10 percent for 15 minutes. Compare with z/VM CPU utilization on the same system. This rule does nothing until node_exporter is scraped.
+      - alert: ZvmLinuxStealCritical
+        expr: avg by (instance) (rate(node_cpu_seconds_total{mode="steal"}[5m])) > 0.25
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Linux CPU steal above 25 percent
+          description: Steal stayed above 25 percent. The guest is waiting on the hypervisor often enough to explain application latency.
+      - alert: ZvmMemoryOvercommitHigh
+        expr: sum by (zvm_host_name) (zvm_guest_memory_total_bytes) / zvm_host_memory_limit_bytes > 1.5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Guest memory is more than 1.5 times LPAR memory
+          description: Sum of guest-reported total memory exceeds 1.5 times the LPAR. Confirm total_memory units on a real system before acting.
+      - alert: ZvmMemoryOvercommitCritical
+        expr: sum by (zvm_host_name) (zvm_guest_memory_total_bytes) / zvm_host_memory_limit_bytes > 3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Guest memory is more than 3 times LPAR memory
+          description: Defined guest memory is far above real LPAR memory. Warning only, same policy as paging and spool. This does not page.
+      - alert: ZvmPagingForecast
+        expr: predict_linear(zvm_paging_utilization[6h], 86400 * 7) > 0.9
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Paging space is forecast to pass 90 percent within 7 days
+          description: A straight line through the last 6 hours of paging utilization crosses 0.9 inside a week. This is warning only.
+      - alert: ZvmSpoolForecast
+        expr: predict_linear(zvm_spool_utilization[6h], 86400 * 7) > 0.9
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Spool space is forecast to pass 90 percent within 7 days
+          description: A straight line through the last 6 hours of spool utilization crosses 0.9 inside a week. This is warning only.
+      - alert: ZvmPagingHigh
+        expr: zvm_paging_utilization > 0.8
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Paging space is above 80 percent
+          description: Paging utilization stayed above 80 percent. Warning only. Look at the 7-day projection before adding volumes.
+      - alert: ZvmSpoolHigh
+        expr: zvm_spool_utilization > 0.8
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Spool space is above 80 percent
+          description: Spool utilization stayed above 80 percent. Warning only. Clean spool before treating this as an outage.

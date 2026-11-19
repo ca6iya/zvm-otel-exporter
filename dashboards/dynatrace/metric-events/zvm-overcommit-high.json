@@ -1,0 +1,27 @@
+{
+  "schemaId": "builtin:anomaly-detection.metric-events",
+  "scope": "environment",
+  "value": {
+    "enabled": true,
+    "summary": "Guest memory exceeds LPAR memory",
+    "queryDefinition": {
+      "type": "METRIC_SELECTOR",
+      "metricSelector": "(zvm.guest.memory.total:sum)/(zvm.host.memory.limit:avg)"
+    },
+    "modelProperties": {
+      "type": "STATIC_THRESHOLD",
+      "threshold": 1.5,
+      "alertOnNoData": false,
+      "alertCondition": "ABOVE",
+      "violatingSamples": 3,
+      "samples": 5,
+      "dealertingSamples": 5
+    },
+    "eventTemplate": {
+      "title": "Guest memory exceeds LPAR memory",
+      "description": "Sum of zvm.guest.memory.total divided by zvm.host.memory.limit is above 1.5. Warning only, same policy as paging and spool. There is no critical overcommit event.",
+      "eventType": "RESOURCE_CONTENTION",
+      "davisMerge": true
+    }
+  }
+}

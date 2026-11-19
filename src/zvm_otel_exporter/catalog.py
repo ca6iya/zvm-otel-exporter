@@ -70,6 +70,33 @@ CATALOG: dict[str, MetricDef] = {
             ),
         ),
         _g(
+            "zvm.system.info",
+            "z/VM system and hardware identity. Value is always 1. "
+            "Attribute keys match the OTLP resource attributes. Prometheus "
+            "label names replace each dot with an underscore. "
+            "LPAR and CPC fields come from /proc/sysinfo. System and host "
+            "names come from Feilong or an override, not from VM00 Name.",
+            "1",
+            (
+                "host.name",
+                "host.arch",
+                "deployment.environment.name",
+                "zvm.system.name",
+                "zvm.host.name",
+                "zvm.lpar.name",
+                "zvm.lpar.number",
+                "zvm.cpc.type",
+                "zvm.cpc.model",
+                "zvm.cpc.sequence",
+                "zvm.cpc.plant",
+                "zvm.site",
+                "zvm.ssi.name",
+                "zvm.hypervisor",
+                "zvm.exporter.guest",
+                "zvm.vm.level",
+            ),
+        ),
+        _g(
             "zvm.host.cpu.count",
             "Logical CPUs on the z/VM LPAR (Feilong vcpus / lpar_cpu_total).",
             "{cpu}",
