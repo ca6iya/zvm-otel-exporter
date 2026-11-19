@@ -9,15 +9,17 @@ The current release line is 0.2.x. State-change events are the work in progress 
 
 | Item | Status | Tracking |
 | --- | --- | --- |
-| CP system records via `vmlogrdr` | proposed | see the issue linked below |
-| Operator console messages | proposed, design first | see the issue linked below |
-| State-change events | in progress | the pull request that adds this file |
-| `QUERY OVERCOMMIT` on z/VM 7.5 | proposed | see the issue linked below |
-| CP Monitor via `monreader` | proposed, separate component | see the issue linked below |
-| Right-sizing report | proposed | see the issue linked below |
-| PyPI, RPM, and Ansible packaging | proposed | see the issue linked below |
-| OpenTelemetry Collector reference configs | proposed | see the issue linked below |
-| Docker Compose demo | proposed | see the issue linked below |
+| CP system records via `vmlogrdr` | proposed | [#6](https://github.com/ca6iya/zvm-otel-exporter/issues/6) |
+| Operator console messages | proposed, design first | [#7](https://github.com/ca6iya/zvm-otel-exporter/issues/7) |
+| State-change events | in progress | [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5) |
+| `QUERY OVERCOMMIT` on z/VM 7.5 | proposed | [#8](https://github.com/ca6iya/zvm-otel-exporter/issues/8) |
+| CP Monitor via `monreader` | proposed, separate component | [#9](https://github.com/ca6iya/zvm-otel-exporter/issues/9) |
+| Right-sizing report | proposed | [#10](https://github.com/ca6iya/zvm-otel-exporter/issues/10) |
+| PyPI, RPM, and Ansible packaging | proposed | [#11](https://github.com/ca6iya/zvm-otel-exporter/issues/11) |
+| OpenTelemetry Collector reference configs | proposed | [#12](https://github.com/ca6iya/zvm-otel-exporter/issues/12) |
+| Docker Compose demo | proposed | [#13](https://github.com/ca6iya/zvm-otel-exporter/issues/13) |
+
+The issues use the `enhancement` label. A `roadmap` label could not be created with the token available to this change (the labels API returned 403). A maintainer can add that label later.
 
 ## 1. CP system records via the Linux vmlogrdr driver
 
@@ -45,7 +47,7 @@ Privileges: whatever the chosen route needs. PROP is an operator facility. A sec
 
 ## 3. State-change events
 
-Status: in progress in the pull request that adds this file.
+Status: in progress in [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5).
 
 Rationale: logon, logoff, SSI relocate, SMAPI or Feilong health, and identity changes can be derived by comparing two scrapes the exporter already stored.
 
