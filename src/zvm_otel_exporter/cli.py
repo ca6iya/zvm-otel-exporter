@@ -118,6 +118,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="z/VM host label used when Feilong has not supplied one",
     )
     parser.add_argument(
+        "--events",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Emit state-change events from consecutive scrapes (default: false)",
+    )
+    parser.add_argument(
         "--once",
         action="store_true",
         help="Scrape once, write Prometheus text to stdout, flush OTLP, and exit",

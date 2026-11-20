@@ -58,6 +58,70 @@ class OtelRuntime:
         self.provider.shutdown()
 
 
+def logs_endpoint(endpoint: str, protocol: str) -> str:
+    """Same normalization as metrics, with the ``/v1/logs`` path."""
+
+    raw = metrics_endpoint(endpoint, protocol)
+    return raw.replace("/v1/metrics", "/v1/logs")
+
+
+@dataclass
+class LogRuntime:
+    provider: object
+    logger: object
+
+    def force_flush(self, timeout_millis: int = 10000) -> bool:
+        return self.provider.force_flush(timeout_millis=timeout_millis)
+
+    def shutdown(self) -> None:
+        self.provider.shutdown()
+
+
+def start_logs(
+    config: OtlpConfig,
+    resource_attributes: dict[str, str] | None = None,
+) -> LogRuntime:
+    """OTLP logs for state-change events. Uses the SDK already installed."""
+
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+
+    endpoint = logs_endpoint(config.endpoint, config.protocol)
+    headers = dict(config.headers)
+    if config.protocol == "grpc":
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+
+        insecure = config.insecure or endpoint.startswith("http://")
+        exporter = OTLPLogExporter(
+            endpoint=endpoint,
+            insecure=insecure,
+            headers=headers or None,
+            timeout=config.timeout,
+        )
+    else:
+        from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+            OTLPLogExporter as HttpLogExporter,
+        )
+
+        exporter = HttpLogExporter(
+            endpoint=endpoint,
+            headers=headers or None,
+            timeout=config.timeout,
+        )
+    provider = LoggerProvider(
+        resource=Resource.create(
+            {
+                "service.name": "zvm-otel-exporter",
+                "service.version": __version__,
+                **{key: value for key, value in (resource_attributes or {}).items() if value},
+            }
+        )
+    )
+    provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+    logger = provider.get_logger("zvm-otel-exporter", __version__)
+    return LogRuntime(provider, logger)
+
+
 def metrics_endpoint(endpoint: str, protocol: str) -> str:
     """Normalize an OTLP endpoint.
 

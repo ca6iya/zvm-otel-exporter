@@ -41,7 +41,7 @@
   "tiles": {
     "0": {
       "type": "markdown",
-      "content": "# z/VM fleet\n\nFleet status from OTLP metrics. The system variable lists hosts. The LPAR variable lists LPARs on those hosts. Host tiles keep a host only when zvm.system.info matches both. Exporter up has no host attribute, so that tile is not filtered."
+      "content": "# z/VM fleet\n\nFleet status from OTLP metrics. The system variable lists hosts. The LPAR variable lists LPARs on those hosts. Host tiles keep a host only when zvm.system.info matches both. Exporter up has no host attribute, so that tile is not filtered.\n\nState-change logs, when events are enabled: `fetch logs | filter startsWith(event.name, \"zvm.\")`"
     },
     "1": {
       "type": "data",
@@ -77,29 +77,29 @@
       "x": 0,
       "y": 0,
       "w": 24,
-      "h": 2
+      "h": 3
     },
     "1": {
       "x": 0,
-      "y": 2,
+      "y": 3,
       "w": 12,
       "h": 8
     },
     "2": {
       "x": 12,
-      "y": 2,
+      "y": 3,
       "w": 12,
       "h": 8
     },
     "3": {
       "x": 0,
-      "y": 10,
+      "y": 11,
       "w": 12,
       "h": 8
     },
     "4": {
       "x": 12,
-      "y": 10,
+      "y": 11,
       "w": 12,
       "h": 8
     }

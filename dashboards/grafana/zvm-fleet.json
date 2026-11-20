@@ -20,17 +20,17 @@
   "annotations": {
     "list": [
       {
-        "name": "Capacity threshold",
-        "enable": false,
+        "name": "z/VM events (fleet)",
+        "enable": true,
         "hide": false,
-        "iconColor": "red",
+        "iconColor": "blue",
         "datasource": {
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
         "target": {
-          "refId": "A",
-          "limit": 100
+          "expr": "(zvm_events_total - zvm_events_total offset 1m) > 0",
+          "refId": "A"
         }
       }
     ]
@@ -515,6 +515,51 @@
               {
                 "color": "green",
                 "value": 1
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Events since start",
+      "description": "Cumulative zvm_events_total by event name. The series exists only when events.enabled is true. Guest ids are not labels. A rise is a logon, logoff, relocate, or health change, not a capacity alarm.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "zvm_events_total",
+          "refId": "A",
+          "legendFormat": "{{event}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
               }
             ]
           },

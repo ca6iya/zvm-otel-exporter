@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional state-change events. Off by default. The first scrape is a baseline. Later changes become OTLP logs and `zvm.events`, with a per-cycle cap and flap suppression. No extra Feilong or CP calls. A carried or incomplete scrape does not confirm a logon or logoff.
+- `ROADMAP.md` for later collector and packaging work.
+
 ## [0.2.0] - 2026-11-18
 
 ### Added

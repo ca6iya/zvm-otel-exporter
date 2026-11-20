@@ -89,6 +89,16 @@ JSON dashboard files have no SPDX line because JSON comments are not valid. The 
 
 Paging, spool, and memory overcommit alerts are warning only. They are not availability incidents. The 3x overcommit rule is still named `ZvmMemoryOvercommitCritical`, and its severity is warning.
 
+## State-change events
+
+Events are off until `events.enabled` is true. They are OTLP log records, not metrics, except for the counter `zvm_events_total{event="..."}`. Dynatrace stores the OTLP logs on the same environment that ingests metrics. A DQL query for them is:
+
+```
+fetch logs | filter startsWith(event.name, "zvm.")
+```
+
+`event.name` is `zvm.guest.logon`, `zvm.guest.logoff`, `zvm.guest.relocate`, `zvm.smapi.unhealthy`, `zvm.smapi.recovered`, `zvm.feilong.unhealthy`, `zvm.feilong.recovered`, or `zvm.identity.changed`. Logon, logoff, relocate, recovery, and identity changes are INFO. SMAPI and Feilong becoming unhealthy are WARN. The Grafana boards annotate `(zvm_events_total - zvm_events_total offset 1m) > 0`. That marks the step where the counter rose, including the first rise from the zero baseline, and it does not stay true for the rest of a five-minute window. The counter has no system, LPAR, or guest label, so the annotation is fleet-wide.
+
 ## Testing the alert rules
 
 `dashboards/grafana/alerts_test.yml` has a promtool case for every rule in `dashboards/grafana/alerts.yml`. Each rule has a firing input and a healthy input that expects `exp_alerts: []`. `ZvmExporterProcessDown` has a second firing input for `absent(zvm_exporter_up)`. CI runs both commands below with the image tag `prom/prometheus:v3.16.0`.

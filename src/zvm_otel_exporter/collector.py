@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 from zvm_otel_exporter import __version__
 from zvm_otel_exporter.config import Config
+from zvm_otel_exporter.events import EventSource, view_from_samples
 from zvm_otel_exporter.feilong import (
     FeilongAuthError,
     FeilongClient,
@@ -75,11 +76,14 @@ class Collector:
         else:
             self.vmcp = None
         self.identity = IdentitySource(config.identity)
+        self.events = EventSource(config.events)
+        self.power_complete = False
 
     def collect(self) -> Snapshot:
         started = time.perf_counter()
         wall = time.time()
         self._down = False
+        self.power_complete = False
         self._warn_fast_scrape()
         try:
             if self.config.feilong.enabled:
@@ -91,6 +95,7 @@ class Collector:
             with self._lock:
                 self.api_errors += 1
             fresh, host_ok = [], False
+            self.power_complete = False
         vmcp_ok = False
         if self.vmcp is not None:
             host = self.host_name or self.config.vmcp.host_name or "local"
@@ -118,6 +123,21 @@ class Collector:
             stale = bool(carried)
         duration = time.perf_counter() - started
         samples = [*zvm_samples, *self._exporter_samples(up, stale, duration)]
+        feilong_up = None if not self.config.feilong.enabled else not self._down
+        guests_complete = (
+            self.config.feilong.enabled
+            and self.config.collectors.power_state
+            and self.power_complete
+            and not stale
+        )
+        self.events.observe(
+            view_from_samples(
+                fresh,
+                feilong_up=feilong_up,
+                guests_complete=guests_complete,
+            )
+        )
+        samples.extend(self.events.counter_samples())
         log.info(
             "scrape finished up=%s stale=%s series=%s api_errors=%s duration=%.3fs",
             up,
@@ -303,11 +323,20 @@ class Collector:
             nics = self._batched("/guests/interfacestats", merged, "guest interface stats")
             fresh.extend(interface_samples(host, nics))
         power_ids = managed if managed is not None else (host_guests or [])
-        power_ids = self._cap_per_guest(power_ids)
-        if toggles.power_state and power_ids:
-            fresh.extend(power_samples(host, self._power(power_ids)))
-        if toggles.minidisks and power_ids:
-            for userid in power_ids:
+        capped = self._cap_per_guest(power_ids)
+        if toggles.power_state and capped:
+            states = self._power(capped)
+            fresh.extend(power_samples(host, states))
+            self.power_complete = (
+                managed is not None
+                and not self._down
+                and len(capped) == len(power_ids)
+                and len(states) == len(capped)
+            )
+        elif toggles.power_state and managed is not None and not power_ids and not self._down:
+            self.power_complete = True
+        if toggles.minidisks and capped:
+            for userid in capped:
                 output = self._call(
                     f"minidisks {userid}",
                     lambda userid=userid: self.client.get_output(

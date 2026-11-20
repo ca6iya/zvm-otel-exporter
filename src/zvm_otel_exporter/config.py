@@ -124,6 +124,31 @@ class CollectorToggles:
     version: bool = True
 
 
+_EVENT_TYPES = frozenset(
+    {
+        "zvm.guest.logon",
+        "zvm.guest.logoff",
+        "zvm.guest.relocate",
+        "zvm.smapi.unhealthy",
+        "zvm.smapi.recovered",
+        "zvm.feilong.unhealthy",
+        "zvm.feilong.recovered",
+        "zvm.identity.changed",
+        "zvm.events.suppressed",
+    }
+)
+
+
+@dataclass
+class EventsConfig:
+    """State-change logs. Off until an operator turns them on."""
+
+    enabled: bool = False
+    types: tuple[str, ...] = ()
+    max_per_cycle: int = 500
+    confirmations: int = 2
+
+
 @dataclass
 class Config:
     feilong: FeilongConfig = field(default_factory=FeilongConfig)
@@ -134,6 +159,7 @@ class Config:
     collectors: CollectorToggles = field(default_factory=CollectorToggles)
     vmcp: VmcpConfig = field(default_factory=VmcpConfig)
     identity: IdentityConfig = field(default_factory=IdentityConfig)
+    events: EventsConfig = field(default_factory=EventsConfig)
     log_level: str = "INFO"
 
     def secrets(self) -> list[str]:
@@ -229,6 +255,13 @@ def validate(config: Config) -> None:
             errors.append("OTLP protocol must be grpc or http")
         if config.otlp.timeout <= 0:
             errors.append("OTLP timeout must be positive")
+    if config.events.max_per_cycle < 1 or config.events.max_per_cycle > 5000:
+        errors.append("events max_per_cycle must be from 1 to 5000")
+    if config.events.confirmations < 1 or config.events.confirmations > 5:
+        errors.append("events confirmations must be from 1 to 5")
+    unknown_events = [name for name in config.events.types if name not in _EVENT_TYPES]
+    if unknown_events:
+        errors.append("unknown events.types: " + ", ".join(unknown_events))
     if config.log_level.upper() not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         errors.append("log level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
     enabled = [name for name in _COLLECTORS if getattr(config.collectors, name)]
@@ -267,6 +300,7 @@ def _apply_file(config: Config, path: Path) -> Config:
             "collectors",
             "vmcp",
             "identity",
+            "events",
             "log_level",
         },
         "config",
@@ -349,6 +383,7 @@ def _apply_file(config: Config, path: Path) -> Config:
         scrape = float(loaded["scrape_interval"])
     vmcp = _vmcp_from_mapping(loaded.get("vmcp"), config.vmcp)
     identity = _identity_from_mapping(loaded.get("identity"), config.identity)
+    events = _events_from_mapping(loaded.get("events"), config.events)
     log_level = str(loaded.get("log_level", config.log_level))
     return Config(
         feilong=FeilongConfig(**_coerce_feilong(feilong)),
@@ -366,6 +401,7 @@ def _apply_file(config: Config, path: Path) -> Config:
         collectors=CollectorToggles(**{key: bool(collectors[key]) for key in _COLLECTORS}),
         vmcp=vmcp,
         identity=identity,
+        events=events,
         log_level=log_level.upper(),
     )
 
@@ -423,6 +459,37 @@ def _identity_from_mapping(raw: object, current: IdentityConfig) -> IdentityConf
         if key != "interval":
             values[key] = str(values[key] or "")
     return IdentityConfig(**values)
+
+
+def _events_from_mapping(raw: object, current: EventsConfig) -> EventsConfig:
+    if raw is None:
+        return current
+    parsed = _mapping(raw, "events")
+    _reject_unknown(parsed, {"enabled", "types", "max_per_cycle", "confirmations"}, "events")
+    enabled = current.enabled
+    if "enabled" in parsed and parsed["enabled"] is not None:
+        enabled = _config_bool(parsed["enabled"], "events.enabled")
+    types = current.types
+    if "types" in parsed and parsed["types"] is not None:
+        raw_types = parsed["types"]
+        if isinstance(raw_types, str):
+            types = tuple(part.strip() for part in raw_types.split(",") if part.strip())
+        elif isinstance(raw_types, list):
+            types = tuple(str(part).strip() for part in raw_types if str(part).strip())
+        else:
+            raise ConfigError("events.types must be a list")
+    max_per_cycle = current.max_per_cycle
+    if parsed.get("max_per_cycle") is not None:
+        max_per_cycle = int(parsed["max_per_cycle"])
+    confirmations = current.confirmations
+    if parsed.get("confirmations") is not None:
+        confirmations = int(parsed["confirmations"])
+    return EventsConfig(
+        enabled=enabled,
+        types=types,
+        max_per_cycle=max_per_cycle,
+        confirmations=confirmations,
+    )
 
 
 def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
@@ -562,6 +629,22 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
             )
     if identity_updates:
         identity = replace(identity, **identity_updates)
+    events = config.events
+    event_updates: dict[str, Any] = {}
+    if "ZVM_EXPORTER_EVENTS_ENABLED" in env:
+        event_updates["enabled"] = _bool_value(
+            env["ZVM_EXPORTER_EVENTS_ENABLED"], "ZVM_EXPORTER_EVENTS_ENABLED"
+        )
+    if "ZVM_EXPORTER_EVENTS_TYPES" in env:
+        event_updates["types"] = tuple(
+            part.strip() for part in env["ZVM_EXPORTER_EVENTS_TYPES"].split(",") if part.strip()
+        )
+    if "ZVM_EXPORTER_EVENTS_MAX_PER_CYCLE" in env:
+        event_updates["max_per_cycle"] = int(env["ZVM_EXPORTER_EVENTS_MAX_PER_CYCLE"])
+    if "ZVM_EXPORTER_EVENTS_CONFIRMATIONS" in env:
+        event_updates["confirmations"] = int(env["ZVM_EXPORTER_EVENTS_CONFIRMATIONS"])
+    if event_updates:
+        events = replace(events, **event_updates)
     return Config(
         feilong=feilong,
         server=server,
@@ -571,6 +654,7 @@ def _apply_env(config: Config, env: Mapping[str, str]) -> Config:
         collectors=collectors,
         vmcp=vmcp,
         identity=identity,
+        events=events,
         log_level=log_level,
     )
 
@@ -651,6 +735,9 @@ def _apply_args(config: Config, args: Any) -> Config:
         feilong = replace(feilong, per_guest_limit=int(args.per_guest_limit))
     if getattr(args, "feilong_enabled", None) is not None:
         feilong = replace(feilong, enabled=bool(args.feilong_enabled))
+    events = config.events
+    if getattr(args, "events", None) is not None:
+        events = replace(events, enabled=bool(args.events))
     return Config(
         feilong=feilong,
         server=server,
@@ -660,6 +747,7 @@ def _apply_args(config: Config, args: Any) -> Config:
         collectors=config.collectors,
         vmcp=vmcp,
         identity=config.identity,
+        events=events,
         log_level=log_level,
     )
 
@@ -706,6 +794,14 @@ def _pool_tuple(value: object) -> tuple[str, ...]:
     if isinstance(value, list):
         return tuple(str(part).strip() for part in value if str(part).strip())
     raise ConfigError("disk pools must be a list or a comma-separated string")
+
+
+def _config_bool(value: object, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return _bool_value(value, name)
+    raise ConfigError(f"{name} must be true or false")
 
 
 def _bool_value(value: str, name: str) -> bool:

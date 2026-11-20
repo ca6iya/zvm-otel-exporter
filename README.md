@@ -49,6 +49,16 @@ Resource attributes are taken once, at process start, and do not change afterwar
 
 Guest, NIC, and disk series are not stamped with the LPAR label. Join them to `zvm_system_info` on `zvm_host_name`.
 
+## State-change events
+
+`events.enabled` is false by default. When it is true, each scrape is compared with the previous confirmed scrape. The first scrape is a baseline and emits nothing. A change is exported only after it has been seen `events.confirmations` times in a row (default 2), so a single-scrape flap is dropped.
+
+The events are guest logon, guest logoff, guest relocate, SMAPI unhealthy and recovered, Feilong unhealthy and recovered, and an identity-label change. Relocate fires only when a guest stays logged on and an SSI member already present on that guest's stat payload changes. Logon and logoff use the power-state samples the scrape already collected. Nothing here adds a Feilong call or a CP command.
+
+OTLP log records are written only when events and OTLP are both enabled, through the logs SDK that ships with the installed OpenTelemetry packages. Prometheus gains `zvm_events_total{event="..."}`. At most `events.max_per_cycle` records are exported (default 500); the rest are one summary record and a count on `event="zvm.events.suppressed"`.
+
+Memory is the last confirmed view plus at most one pending view, keyed by guest id and by the health flags. That is a few short strings per guest, not a history. See [docs/dashboards.md](docs/dashboards.md) for the Dynatrace log query. Later ideas are listed in [ROADMAP.md](ROADMAP.md).
+
 ## Release
 
 The latest release is [0.2.0](https://github.com/ca6iya/zvm-otel-exporter/releases/tag/v0.2.0) (2026-11-18). The package version in `pyproject.toml` and `__version__` is 0.2.0. The change history is [CHANGELOG.md](CHANGELOG.md), in [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format. How a maintainer cuts a release is in [RELEASE.md](RELEASE.md).
@@ -273,7 +283,8 @@ The details payload in the Feilong docs is a pool-name key whose value is a list
 | `zvm.guest.memory.total` | gauge | `total_memory` | Bytes, assuming kilobytes. The API does not name the unit. |
 | `zvm.guest.memory.available` | gauge | `available_memory` | Bytes, same assumption. |
 | `zvm.guest.memory.free` | gauge | `free_memory` | Bytes, same assumption. |
-| `zvm.guest.up` | gauge | `GET /guests/{id}/power_state` | 1 when `on`, 0 when `off`. Label `zvm.power.state` repeats the state. |
+| `zvm.guest.up` | gauge | `GET /guests/{id}/power_state` | 1 when `on`, 0 when `off`. Label `zvm.power.state` repeats the state. | 
+| `zvm.guest.location` | gauge | guest stat payload | 1 when the payload already includes `ssi_member`, `member_system_id`, or `host_system`. No series, and no extra call, when the field is absent. |
 | `zvm.guest.network.io` | counter | `GET /guests/interfacestats` | Bytes. `network.io.direction` is `receive` or `transmit`. |
 | `zvm.guest.network.packets` | counter | `nic_fr_rx`, `nic_fr_tx` | Frames, same direction label. |
 | `zvm.guest.network.errors` | counter | `nic_fr_rx_err`, `nic_fr_tx_err` | Frame errors. |
@@ -297,6 +308,7 @@ NIC series also carry `network.interface.name` (the virtual device) and `zvm.vsw
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
+| `zvm.events` | counter | State changes since process start. Label `event` is a fixed set such as `zvm.guest.logon`. No guest id. Emitted only when `events.enabled` is true. |
 | `zvm.exporter.info` | gauge | Always 1. Label `service.version`. |
 | `zvm.exporter.up` | gauge | 1 when this scrape collected host information. |
 | `zvm.exporter.scrape.duration` | gauge | Seconds spent in the scrape. |

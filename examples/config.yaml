@@ -85,4 +85,12 @@ identity:
   exporter_guest: ""
   vm_level: ""
 
+# State-change logs. Off by default. Empty types means every known event.
+# confirmations is how many scrapes a new state must repeat before it is emitted.
+events:
+  enabled: false
+  types: []
+  max_per_cycle: 500
+  confirmations: 2
+
 log_level: INFO

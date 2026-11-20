@@ -108,12 +108,15 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
         "annotations": {
             "list": [
                 {
-                    "name": "Capacity threshold",
-                    "enable": False,
+                    "name": "z/VM events (fleet)",
+                    "enable": True,
                     "hide": False,
-                    "iconColor": "red",
+                    "iconColor": "blue",
                     "datasource": DS,
-                    "target": {"refId": "A", "limit": 100},
+                    "target": {
+                        "expr": "(zvm_events_total - zvm_events_total offset 1m) > 0",
+                        "refId": "A",
+                    },
                 }
             ]
         },
@@ -308,6 +311,17 @@ FLEET = [
         w=12,
         h=8,
         legend="smapi",
+    ),
+    _panel(
+        9,
+        "Events since start",
+        "Cumulative zvm_events_total by event name. The series exists only when events.enabled is true. Guest ids are not labels. A rise is a logon, logoff, relocate, or health change, not a capacity alarm.",
+        "zvm_events_total",
+        x=0,
+        y=32,
+        w=24,
+        h=8,
+        legend="{{event}}",
     ),
 ]
 
@@ -713,8 +727,17 @@ def _dyn_dashboard(title: str, summary: str, tiles: list[dict]) -> dict:
     (version, variables, tiles, layouts), which is what Download writes.
     """
 
-    body_tiles: dict[str, dict] = {"0": {"type": "markdown", "content": f"# {title}\n\n{summary}"}}
-    layouts: dict[str, dict] = {"0": {"x": 0, "y": 0, "w": 24, "h": 2}}
+    body_tiles: dict[str, dict] = {
+        "0": {
+            "type": "markdown",
+            "content": (
+                f"# {title}\n\n{summary}\n\n"
+                "State-change logs, when events are enabled: "
+                '`fetch logs | filter startsWith(event.name, "zvm.")`'
+            ),
+        }
+    }
+    layouts: dict[str, dict] = {"0": {"x": 0, "y": 0, "w": 24, "h": 3}}
     for index, tile in enumerate(tiles, start=1):
         key = str(index)
         body_tiles[key] = {
@@ -957,7 +980,7 @@ def main() -> None:
                     "Average INDICATE LOAD utilization for the selected system and LPAR. High CPU plus high steal means the LPAR is busy.",
                     _scoped_dql("zvm.system.cpu.utilization"),
                     0,
-                    2,
+                    3,
                     12,
                     8,
                 ),
@@ -966,7 +989,7 @@ def main() -> None:
                     "1 when the last Feilong host scrape worked. 0 means Feilong failed while the process was still exporting. zvm.exporter.up has no host attribute, so this tile is not split by host or LPAR. A missing series is the separate missing-data event.",
                     "timeseries avg(zvm.exporter.up)",
                     12,
-                    2,
+                    3,
                     12,
                     8,
                 ),
@@ -975,7 +998,7 @@ def main() -> None:
                     "Paging pages in use over pages allocated for the selected system and LPAR. Trend, not an outage signal.",
                     _scoped_dql("zvm.paging.utilization"),
                     0,
-                    10,
+                    11,
                     12,
                     8,
                 ),
@@ -984,7 +1007,7 @@ def main() -> None:
                     "Spool pages in use over pages allocated for the selected system and LPAR.",
                     _scoped_dql("zvm.spool.utilization"),
                     12,
-                    10,
+                    11,
                     12,
                     8,
                 ),
@@ -999,7 +1022,7 @@ def main() -> None:
                     "zvm.system.cpu.utilization for the selected system and LPAR.",
                     _scoped_dql("zvm.system.cpu.utilization"),
                     0,
-                    2,
+                    3,
                     12,
                     8,
                 ),
@@ -1008,7 +1031,7 @@ def main() -> None:
                     "Cumulative guest CPU counter for the selected guest, system, and LPAR. Apply a rate in the tile if you need cores. DQL timeseries does not take a PromQL rate().",
                     _scoped_dql("zvm.guest.cpu.time", guest=True),
                     12,
-                    2,
+                    3,
                     12,
                     8,
                 ),
@@ -1017,7 +1040,7 @@ def main() -> None:
                     "builtin:host.cpu.steal from OneAgent, percent. Empty until the Linux guest is monitored by OneAgent. This tile does not use the z/VM LPAR variable.",
                     "timeseries avg(builtin:host.cpu.steal), by:{dt.entity.host}",
                     0,
-                    10,
+                    11,
                     12,
                     8,
                 ),
@@ -1026,7 +1049,7 @@ def main() -> None:
                     "builtin:host.cpu.usage. Compare with steal. Usage without steal is work inside Linux. This tile does not use the z/VM LPAR variable.",
                     "timeseries avg(builtin:host.cpu.usage), by:{dt.entity.host}",
                     12,
-                    10,
+                    11,
                     12,
                     8,
                 ),
@@ -1041,7 +1064,7 @@ def main() -> None:
                     "LPAR memory usage from Feilong, in bytes, for the selected system and LPAR.",
                     _scoped_dql("zvm.host.memory.usage"),
                     0,
-                    2,
+                    3,
                     12,
                     8,
                 ),
@@ -1050,7 +1073,7 @@ def main() -> None:
                     "Guest-reported total memory for the selected system and LPAR. Divide by host memory limit for overcommit.",
                     _scoped_dql("zvm.guest.memory.total"),
                     12,
-                    2,
+                    3,
                     12,
                     8,
                 ),
@@ -1059,7 +1082,7 @@ def main() -> None:
                     "DQL forecast of paging utilization. A rising forecast through 0.9 inside a week is a warning, not an incident.",
                     _scoped_dql("zvm.paging.utilization") + "\n| forecast",
                     0,
-                    10,
+                    11,
                     12,
                     8,
                 ),
@@ -1068,7 +1091,7 @@ def main() -> None:
                     "DQL forecast of spool utilization. Warning only.",
                     _scoped_dql("zvm.spool.utilization") + "\n| forecast",
                     12,
-                    10,
+                    11,
                     12,
                     8,
                 ),
