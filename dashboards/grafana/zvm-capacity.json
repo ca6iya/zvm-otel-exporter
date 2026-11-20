@@ -20,7 +20,7 @@
   "annotations": {
     "list": [
       {
-        "name": "z/VM events",
+        "name": "z/VM events (fleet)",
         "enable": true,
         "hide": false,
         "iconColor": "blue",
@@ -29,7 +29,7 @@
           "uid": "${DS_PROMETHEUS}"
         },
         "target": {
-          "expr": "increase(zvm_events_total[5m]) > 0",
+          "expr": "(zvm_events_total - zvm_events_total offset 1m) > 0",
           "refId": "A"
         }
       }

@@ -108,13 +108,13 @@ def _dashboard(uid: str, title: str, description: str, panels: list[dict]) -> di
         "annotations": {
             "list": [
                 {
-                    "name": "z/VM events",
+                    "name": "z/VM events (fleet)",
                     "enable": True,
                     "hide": False,
                     "iconColor": "blue",
                     "datasource": DS,
                     "target": {
-                        "expr": "increase(zvm_events_total[5m]) > 0",
+                        "expr": "(zvm_events_total - zvm_events_total offset 1m) > 0",
                         "refId": "A",
                     },
                 }

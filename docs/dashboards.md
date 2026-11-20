@@ -97,7 +97,7 @@ Events are off until `events.enabled` is true. They are OTLP log records, not me
 fetch logs | filter startsWith(event.name, "zvm.")
 ```
 
-`event.name` is `zvm.guest.logon`, `zvm.guest.logoff`, `zvm.guest.relocate`, `zvm.smapi.unhealthy`, `zvm.smapi.recovered`, `zvm.feilong.unhealthy`, `zvm.feilong.recovered`, or `zvm.identity.changed`. Logon, logoff, relocate, recovery, and identity changes are INFO. SMAPI and Feilong becoming unhealthy are WARN. The Grafana fleet board annotates `increase(zvm_events_total[5m]) > 0` and plots the counter. The counter has no guest label.
+`event.name` is `zvm.guest.logon`, `zvm.guest.logoff`, `zvm.guest.relocate`, `zvm.smapi.unhealthy`, `zvm.smapi.recovered`, `zvm.feilong.unhealthy`, `zvm.feilong.recovered`, or `zvm.identity.changed`. Logon, logoff, relocate, recovery, and identity changes are INFO. SMAPI and Feilong becoming unhealthy are WARN. The Grafana boards annotate `(zvm_events_total - zvm_events_total offset 1m) > 0`. That marks the step where the counter rose, including the first rise from the zero baseline, and it does not stay true for the rest of a five-minute window. The counter has no system, LPAR, or guest label, so the annotation is fleet-wide.
 
 ## Testing the alert rules
 

@@ -176,9 +176,7 @@ class EventSource:
         if not self._config.enabled:
             return []
         return [
-            Sample("zvm.events", count, {"event": name})
-            for name, count in self._counts.items()
-            if count or name != SUPPRESSED
+            Sample("zvm.events", count, {"event": name}) for name, count in self._counts.items()
         ]
 
     def _allow(self, events: list[StateEvent]) -> list[StateEvent]:
@@ -245,8 +243,8 @@ class EventSource:
         assert self._confirmed is not None
         previous = self._confirmed.guests
         current = view.guests
-        self._drop_absent_pending(current)
-        if previous and not current:
+        self._drop_absent_pending(current, complete=view.guests_complete)
+        if previous and not current and not view.guests_complete:
             return []
         events: list[StateEvent] = []
         for guest in sorted(set(previous) | set(current)):
@@ -256,16 +254,18 @@ class EventSource:
             if new is None and not view.guests_complete:
                 continue
             if new is not None and new.up is None:
-                self._pending.pop(key, None)
-                if (
+                member_changed = (
                     old is not None
                     and old.up is True
                     and old.member
                     and new.member
                     and old.member != new.member
-                    and self._ready(key, new)
-                ):
-                    events.extend(_guest_events(guest, old, new))
+                )
+                if member_changed:
+                    if self._ready(key, new):
+                        events.extend(_guest_events(guest, old, new))
+                else:
+                    self._pending.pop(key, None)
                 continue
             if old == new:
                 self._pending.pop(key, None)
@@ -275,10 +275,23 @@ class EventSource:
             events.extend(_guest_events(guest, old, new))
         return events
 
-    def _drop_absent_pending(self, current: Mapping[str, GuestState]) -> None:
+    def _drop_absent_pending(self, current: Mapping[str, GuestState], *, complete: bool) -> None:
+        """Drop pending appearances that vanished.
+
+        A pending removal (value None) stays while complete views keep omitting
+        that guest, so confirmation can finish. An incomplete view clears it.
+        """
+
         for key in list(self._pending):
-            if key.startswith("guest:") and key.removeprefix("guest:") not in current:
-                self._pending.pop(key, None)
+            if not key.startswith("guest:"):
+                continue
+            guest = key.removeprefix("guest:")
+            if guest in current:
+                continue
+            pending_value = self._pending[key][0]
+            if complete and pending_value is None:
+                continue
+            self._pending.pop(key, None)
 
     def _ready(self, key: str, value: object) -> bool:
         needed = self._config.confirmations
@@ -336,7 +349,8 @@ def _guest_events(guest: str, old: GuestState | None, new: GuestState | None) ->
         events.append(StateEvent(LOGOFF, f"{guest} logged off", attrs))
     old_member = old.member if old is not None else ""
     new_member = new.member if new is not None else ""
-    if was_up and now_up is True and old_member and new_member and old_member != new_member:
+    still_on = now_up is True or (now_up is None and was_up)
+    if still_on and old_member and new_member and old_member != new_member:
         events.append(
             StateEvent(
                 RELOCATE,

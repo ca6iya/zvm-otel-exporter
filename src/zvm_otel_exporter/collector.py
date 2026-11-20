@@ -77,11 +77,13 @@ class Collector:
             self.vmcp = None
         self.identity = IdentitySource(config.identity)
         self.events = EventSource(config.events)
+        self.power_complete = False
 
     def collect(self) -> Snapshot:
         started = time.perf_counter()
         wall = time.time()
         self._down = False
+        self.power_complete = False
         self._warn_fast_scrape()
         try:
             if self.config.feilong.enabled:
@@ -124,7 +126,7 @@ class Collector:
         guests_complete = (
             self.config.feilong.enabled
             and self.config.collectors.power_state
-            and not self._down
+            and self.power_complete
             and not stale
         )
         self.events.observe(
@@ -320,11 +322,20 @@ class Collector:
             nics = self._batched("/guests/interfacestats", merged, "guest interface stats")
             fresh.extend(interface_samples(host, nics))
         power_ids = managed if managed is not None else (host_guests or [])
-        power_ids = self._cap_per_guest(power_ids)
-        if toggles.power_state and power_ids:
-            fresh.extend(power_samples(host, self._power(power_ids)))
-        if toggles.minidisks and power_ids:
-            for userid in power_ids:
+        capped = self._cap_per_guest(power_ids)
+        if toggles.power_state and capped:
+            states = self._power(capped)
+            fresh.extend(power_samples(host, states))
+            self.power_complete = (
+                managed is not None
+                and not self._down
+                and len(capped) == len(power_ids)
+                and len(states) == len(capped)
+            )
+        elif toggles.power_state and managed is not None and not power_ids and not self._down:
+            self.power_complete = True
+        if toggles.minidisks and capped:
+            for userid in capped:
                 output = self._call(
                     f"minidisks {userid}",
                     lambda userid=userid: self.client.get_output(

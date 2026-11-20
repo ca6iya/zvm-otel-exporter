@@ -169,11 +169,48 @@ def test_string_false_does_not_enable_events(tmp_path) -> None:
     assert config.events.enabled is False
 
 
+def test_empty_guest_set_is_not_a_mass_logoff() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=1))
+    source.observe(_view({"LINUX1": (True, "")}))
+    assert source.observe(_view({})) == ()
+
+
+def test_complete_empty_list_logs_everyone_off() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=1))
+    source.observe(_view({"LINUX1": (True, "")}, complete=True))
+    events = source.observe(_view({}, complete=True))
+    assert _names(events) == [LOGOFF]
+
+
 def test_incomplete_guest_list_does_not_log_off_the_missing_guest() -> None:
     source = EventSource(EventsConfig(enabled=True, confirmations=1))
     source.observe(_view({"LINUX1": (True, ""), "LINUX2": (True, "")}))
     events = source.observe(_view({"LINUX2": (True, "")}))
     assert LOGOFF not in _names(events)
+
+
+def test_repeated_complete_absence_reaches_the_second_confirmation() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=2))
+    source.observe(_view({"LINUX1": (True, ""), "LINUX2": (True, "")}, complete=True))
+    assert source.observe(_view({"LINUX2": (True, "")}, complete=True)) == ()
+    events = source.observe(_view({"LINUX2": (True, "")}, complete=True))
+    assert _names(events) == [LOGOFF]
+    assert events[0].attributes["zvm.guest.id"] == "LINUX1"
+
+
+def test_unknown_power_confirms_relocate_without_a_logoff() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=2))
+    source.observe(_view({"LINUX1": (True, "MEM1")}, complete=True))
+    moved = CollectionView(
+        guests={"LINUX1": GuestState(up=None, member="MEM2")},
+        smapi=True,
+        feilong=True,
+        identity=(("zvm.lpar.name", "LPAR1"),),
+        guests_complete=True,
+    )
+    assert source.observe(moved) == ()
+    events = source.observe(moved)
+    assert _names(events) == [RELOCATE]
 
 
 def test_complete_guest_list_logs_off_a_missing_guest() -> None:
