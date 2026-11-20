@@ -32,6 +32,7 @@ def _view(
     smapi: bool | None = True,
     feilong: bool | None = True,
     identity: tuple[tuple[str, str], ...] = (("zvm.lpar.name", "LPAR1"),),
+    complete: bool = False,
 ) -> CollectionView:
     return CollectionView(
         guests={
@@ -40,6 +41,7 @@ def _view(
         smapi=smapi,
         feilong=feilong,
         identity=identity,
+        guests_complete=complete,
     )
 
 
@@ -167,7 +169,95 @@ def test_string_false_does_not_enable_events(tmp_path) -> None:
     assert config.events.enabled is False
 
 
-def test_empty_guest_set_is_not_a_mass_logoff() -> None:
+def test_incomplete_guest_list_does_not_log_off_the_missing_guest() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=1))
+    source.observe(_view({"LINUX1": (True, ""), "LINUX2": (True, "")}))
+    events = source.observe(_view({"LINUX2": (True, "")}))
+    assert LOGOFF not in _names(events)
+
+
+def test_complete_guest_list_logs_off_a_missing_guest() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=1))
+    full = _view({"LINUX1": (True, ""), "LINUX2": (True, "")}, complete=True)
+    remaining = _view({"LINUX2": (True, "")}, complete=True)
+    source.observe(full)
+    events = source.observe(remaining)
+    assert _names(events) == [LOGOFF]
+    assert events[0].attributes["zvm.guest.id"] == "LINUX1"
+
+
+def test_feilong_timeout_after_host_success_is_unhealthy(mock_feilong) -> None:
+    config = make_config(mock_feilong.url)
+    config.events = EventsConfig(enabled=True, confirmations=1)
+    client = FeilongClient(config.feilong, config.secrets())
+    collector = Collector(client, config)
+    try:
+        collector.collect()
+
+        def host_then_timeout() -> tuple[list[Sample], bool]:
+            collector._down = True
+            return (
+                [
+                    Sample(
+                        "zvm.host.info",
+                        1.0,
+                        {"zvm.host.name": "OPNSTK2", "zvm.system.name": "OPNSTK2"},
+                    )
+                ],
+                True,
+            )
+
+        collector._gather = host_then_timeout  # type: ignore[method-assign]
+        snapshot = collector.collect()
+    finally:
+        client.close()
+    assert FEILONG_DOWN in _names(collector.events.records)
+    up = next(sample for sample in snapshot.samples if sample.name == "zvm.exporter.up")
+    assert up.value == 1.0
+
+
+def test_carried_power_sample_does_not_confirm_logoff(mock_feilong) -> None:
+    config = make_config(mock_feilong.url)
+    config.events = EventsConfig(enabled=True, confirmations=2)
+    client = FeilongClient(config.feilong, config.secrets())
+    collector = Collector(client, config)
+    try:
+        collector.collect()
+
+        def guest_turned_off() -> tuple[list[Sample], bool]:
+            return (
+                [
+                    Sample(
+                        "zvm.host.info",
+                        1.0,
+                        {"zvm.host.name": "OPNSTK2", "zvm.system.name": "OPNSTK2"},
+                    ),
+                    Sample(
+                        "zvm.guest.up",
+                        0.0,
+                        {
+                            "zvm.host.name": "OPNSTK2",
+                            "zvm.guest.id": "LINUX1",
+                            "zvm.power.state": "off",
+                        },
+                    ),
+                ],
+                True,
+            )
+
+        collector._gather = guest_turned_off  # type: ignore[method-assign]
+        collector.collect()
+        assert collector.events.records == ()
+
+        def failed_scrape() -> tuple[list[Sample], bool]:
+            collector._down = True
+            return [], False
+
+        collector._gather = failed_scrape  # type: ignore[method-assign]
+        collector.collect()
+    finally:
+        client.close()
+    assert LOGOFF not in _names(collector.events.records)
     source = EventSource(EventsConfig(enabled=True, confirmations=1))
     source.observe(_view({"LINUX1": (True, "")}))
     assert source.observe(_view({})) == ()
