@@ -262,8 +262,9 @@ class EventSource:
                     and old.member != new.member
                 )
                 if member_changed:
-                    if self._ready(key, new):
-                        events.extend(_guest_events(guest, old, new))
+                    candidate = GuestState(up=True, member=new.member)
+                    if self._ready(key, candidate):
+                        events.extend(_guest_events(guest, old, candidate))
                 else:
                     self._pending.pop(key, None)
                 continue
@@ -314,8 +315,11 @@ class EventSource:
             if "guest:" + guest in self._pending:
                 continue
             previous = guests.get(guest)
-            if state.up is None and previous is not None:
-                guests[guest] = GuestState(up=previous.up, member=state.member or previous.member)
+            if previous is not None and state.up is not False:
+                guests[guest] = GuestState(
+                    up=previous.up if state.up is None else state.up,
+                    member=state.member or (previous.member if previous.up is not False else ""),
+                )
             else:
                 guests[guest] = state
         if view.guests_complete:

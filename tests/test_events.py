@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from tests.helpers import make_config
 from zvm_otel_exporter.collector import Collector
 from zvm_otel_exporter.config import EventsConfig, load_config
@@ -196,6 +198,51 @@ def test_repeated_complete_absence_reaches_the_second_confirmation() -> None:
     events = source.observe(_view({"LINUX2": (True, "")}, complete=True))
     assert _names(events) == [LOGOFF]
     assert events[0].attributes["zvm.guest.id"] == "LINUX1"
+
+
+def test_missing_location_keeps_the_confirmed_member() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=1))
+    source.observe(_view({"LINUX1": (True, "MEM1")}, complete=True))
+    source.observe(_view({"LINUX1": (True, "")}, complete=True))
+    events = source.observe(_view({"LINUX1": (True, "MEM2")}, complete=True))
+    assert _names(events) == [RELOCATE]
+    assert events[0].attributes["zvm.ssi.member.previous"] == "MEM1"
+
+
+def test_alternating_power_still_confirms_the_same_relocation() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=2))
+    source.observe(_view({"LINUX1": (True, "MEM1")}, complete=True))
+    unknown = CollectionView(
+        guests={"LINUX1": GuestState(up=None, member="MEM2")},
+        smapi=True,
+        feilong=True,
+        identity=(("zvm.lpar.name", "LPAR1"),),
+        guests_complete=True,
+    )
+    assert source.observe(unknown) == ()
+    events = source.observe(_view({"LINUX1": (True, "MEM2")}, complete=True))
+    assert _names(events) == [RELOCATE]
+
+
+def test_gather_exception_clears_power_completeness(mock_feilong) -> None:
+    config = make_config(mock_feilong.url)
+    config.collectors = replace(config.collectors, host=False)
+    config.events = EventsConfig(enabled=True, confirmations=1)
+    client = FeilongClient(config.feilong, config.secrets())
+    collector = Collector(client, config)
+    try:
+        collector.collect()
+
+        def discard(_self=collector) -> tuple[list[Sample], bool]:
+            _self.power_complete = True
+            raise RuntimeError("bad device size")
+
+        collector._gather = discard  # type: ignore[method-assign]
+        collector.collect()
+    finally:
+        client.close()
+    assert collector.power_complete is False
+    assert LOGOFF not in _names(collector.events.records)
 
 
 def test_unknown_power_confirms_relocate_without_a_logoff() -> None:

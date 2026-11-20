@@ -95,6 +95,7 @@ class Collector:
             with self._lock:
                 self.api_errors += 1
             fresh, host_ok = [], False
+            self.power_complete = False
         vmcp_ok = False
         if self.vmcp is not None:
             host = self.host_name or self.config.vmcp.host_name or "local"
