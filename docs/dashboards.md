@@ -94,10 +94,10 @@ Paging, spool, and memory overcommit alerts are warning only. They are not avail
 Events are off until `events.enabled` is true. They are OTLP log records, not metrics, except for the counter `zvm_events_total{event="..."}`. Dynatrace stores the OTLP logs on the same environment that ingests metrics. A DQL query for them is:
 
 ```
-fetch logs | filter event.name startsWith "zvm."
+fetch logs | filter startsWith(event.name, "zvm.")
 ```
 
-`event.name` is `zvm.guest.logon`, `zvm.guest.logoff`, `zvm.guest.relocate`, `zvm.smapi.unhealthy`, `zvm.smapi.recovered`, `zvm.feilong.unhealthy`, `zvm.feilong.recovered`, or `zvm.identity.changed`. Logon, logoff, relocate, recovery, and identity changes are INFO. SMAPI and Feilong becoming unhealthy are WARN. The Grafana fleet board annotates `changes(zvm_events_total[5m]) > 0` and plots the counter. The counter has no guest label.
+`event.name` is `zvm.guest.logon`, `zvm.guest.logoff`, `zvm.guest.relocate`, `zvm.smapi.unhealthy`, `zvm.smapi.recovered`, `zvm.feilong.unhealthy`, `zvm.feilong.recovered`, or `zvm.identity.changed`. Logon, logoff, relocate, recovery, and identity changes are INFO. SMAPI and Feilong becoming unhealthy are WARN. The Grafana fleet board annotates `increase(zvm_events_total[5m]) > 0` and plots the counter. The counter has no guest label.
 
 ## Testing the alert rules
 

@@ -120,8 +120,20 @@ class Collector:
             stale = bool(carried)
         duration = time.perf_counter() - started
         samples = [*zvm_samples, *self._exporter_samples(up, stale, duration)]
-        feilong_up = up if self.config.feilong.enabled else None
-        self.events.observe(view_from_samples(samples, feilong_up=feilong_up))
+        feilong_up = None if not self.config.feilong.enabled else not self._down
+        guests_complete = (
+            self.config.feilong.enabled
+            and self.config.collectors.power_state
+            and not self._down
+            and not stale
+        )
+        self.events.observe(
+            view_from_samples(
+                fresh,
+                feilong_up=feilong_up,
+                guests_complete=guests_complete,
+            )
+        )
         samples.extend(self.events.counter_samples())
         log.info(
             "scrape finished up=%s stale=%s series=%s api_errors=%s duration=%.3fs",

@@ -136,6 +136,37 @@ def test_allowlist_keeps_logon() -> None:
     assert _names(events) == [LOGON]
 
 
+def test_pending_guest_is_forgotten_when_it_disappears() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=2))
+    source.observe(_view({}))
+    source.observe(_view({"LINUX1": (True, "")}))
+    source.observe(_view({}))
+    again = source.observe(_view({"LINUX1": (True, "")}))
+    assert again == ()
+
+
+def test_location_without_power_is_not_a_logoff() -> None:
+    source = EventSource(EventsConfig(enabled=True, confirmations=1))
+    source.observe(_view({"LINUX1": (True, "MEM1")}))
+    quiet = source.observe(
+        CollectionView(
+            guests={"LINUX1": GuestState(up=None, member="MEM1")}, smapi=True, feilong=True
+        )
+    )
+    assert quiet == ()
+
+
+def test_string_false_does_not_enable_events(tmp_path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "feilong:\n  url: https://feilong.example\n  admin_token: admin-token-value\n"
+        "events:\n  enabled: 'false'\n",
+        encoding="utf-8",
+    )
+    config = load_config(None, environ={"ZVM_EXPORTER_CONFIG": str(path)})
+    assert config.events.enabled is False
+
+
 def test_empty_guest_set_is_not_a_mass_logoff() -> None:
     source = EventSource(EventsConfig(enabled=True, confirmations=1))
     source.observe(_view({"LINUX1": (True, "")}))

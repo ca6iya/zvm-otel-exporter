@@ -29,7 +29,7 @@
           "uid": "${DS_PROMETHEUS}"
         },
         "target": {
-          "expr": "changes(zvm_events_total[5m]) > 0",
+          "expr": "increase(zvm_events_total[5m]) > 0",
           "refId": "A"
         }
       }

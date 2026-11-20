@@ -52,7 +52,9 @@ _MEMBER_KEYS = ("ssi_member", "member_system_id", "host_system")
 
 @dataclass(frozen=True)
 class GuestState:
-    up: bool
+    """``up`` is None when this scrape has a member but no power sample."""
+
+    up: bool | None
     member: str = ""
 
 
@@ -62,6 +64,7 @@ class CollectionView:
     smapi: bool | None = None
     feilong: bool | None = None
     identity: tuple[tuple[str, str], ...] = ()
+    guests_complete: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,12 @@ def member_from_stat(raw: Mapping[str, object]) -> str:
     return ""
 
 
-def view_from_samples(samples: list[Sample], *, feilong_up: bool | None) -> CollectionView:
+def view_from_samples(
+    samples: list[Sample],
+    *,
+    feilong_up: bool | None,
+    guests_complete: bool = False,
+) -> CollectionView:
     guests: dict[str, GuestState] = {}
     members: dict[str, str] = {}
     smapi: bool | None = None
@@ -116,12 +124,13 @@ def view_from_samples(samples: list[Sample], *, feilong_up: bool | None) -> Coll
     }
     for guest, member in members.items():
         if guest not in merged and member:
-            merged[guest] = GuestState(up=False, member=member)
+            merged[guest] = GuestState(up=None, member=member)
     return CollectionView(
         guests=merged,
         smapi=smapi,
         feilong=feilong_up,
         identity=tuple(identity),
+        guests_complete=guests_complete,
     )
 
 
@@ -187,7 +196,7 @@ class EventSource:
             self._flag("feilong", self._confirmed.feilong, view.feilong, FEILONG_DOWN, FEILONG_UP)
         )
         events.extend(self._identity(view.identity))
-        events.extend(self._guests(view.guests))
+        events.extend(self._guests(view))
         return events
 
     def _flag(
@@ -232,9 +241,11 @@ class EventSource:
             )
         ]
 
-    def _guests(self, current: Mapping[str, GuestState]) -> list[StateEvent]:
+    def _guests(self, view: CollectionView) -> list[StateEvent]:
         assert self._confirmed is not None
         previous = self._confirmed.guests
+        current = view.guests
+        self._drop_absent_pending(current)
         if previous and not current:
             return []
         events: list[StateEvent] = []
@@ -242,6 +253,20 @@ class EventSource:
             old = previous.get(guest)
             new = current.get(guest)
             key = "guest:" + guest
+            if new is None and not view.guests_complete:
+                continue
+            if new is not None and new.up is None:
+                self._pending.pop(key, None)
+                if (
+                    old is not None
+                    and old.up is True
+                    and old.member
+                    and new.member
+                    and old.member != new.member
+                    and self._ready(key, new)
+                ):
+                    events.extend(_guest_events(guest, old, new))
+                continue
             if old == new:
                 self._pending.pop(key, None)
                 continue
@@ -249,6 +274,11 @@ class EventSource:
                 continue
             events.extend(_guest_events(guest, old, new))
         return events
+
+    def _drop_absent_pending(self, current: Mapping[str, GuestState]) -> None:
+        for key in list(self._pending):
+            if key.startswith("guest:") and key.removeprefix("guest:") not in current:
+                self._pending.pop(key, None)
 
     def _ready(self, key: str, value: object) -> bool:
         needed = self._config.confirmations
@@ -266,13 +296,16 @@ class EventSource:
     def _advance(self, confirmed: CollectionView, view: CollectionView) -> CollectionView:
         """Keep unconfirmed guest and flag values at the previous state."""
 
-        if confirmed.guests and not view.guests:
-            guests = dict(confirmed.guests)
-        else:
-            guests = dict(confirmed.guests)
-            for guest, state in view.guests.items():
-                if "guest:" + guest not in self._pending:
-                    guests[guest] = state
+        guests = dict(confirmed.guests)
+        for guest, state in view.guests.items():
+            if "guest:" + guest in self._pending:
+                continue
+            previous = guests.get(guest)
+            if state.up is None and previous is not None:
+                guests[guest] = GuestState(up=previous.up, member=state.member or previous.member)
+            else:
+                guests[guest] = state
+        if view.guests_complete:
             for guest in list(guests):
                 if guest not in view.guests and "guest:" + guest not in self._pending:
                     del guests[guest]
@@ -293,15 +326,17 @@ class EventSource:
 def _guest_events(guest: str, old: GuestState | None, new: GuestState | None) -> list[StateEvent]:
     attrs = {"zvm.guest.id": guest, "zvm.userid": guest}
     events: list[StateEvent] = []
-    was_up = old.up if old is not None else False
-    now_up = new.up if new is not None else False
-    if not was_up and now_up:
+    was_up = bool(old.up) if old is not None else False
+    now_up = new.up if new is not None else None
+    if now_up is True and not was_up:
         events.append(StateEvent(LOGON, f"{guest} logged on", attrs))
-    elif was_up and not now_up:
+    elif now_up is False and was_up:
+        events.append(StateEvent(LOGOFF, f"{guest} logged off", attrs))
+    elif new is None and was_up:
         events.append(StateEvent(LOGOFF, f"{guest} logged off", attrs))
     old_member = old.member if old is not None else ""
     new_member = new.member if new is not None else ""
-    if was_up and now_up and old_member and new_member and old_member != new_member:
+    if was_up and now_up is True and old_member and new_member and old_member != new_member:
         events.append(
             StateEvent(
                 RELOCATE,

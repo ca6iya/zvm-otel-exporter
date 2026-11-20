@@ -466,7 +466,9 @@ def _events_from_mapping(raw: object, current: EventsConfig) -> EventsConfig:
         return current
     parsed = _mapping(raw, "events")
     _reject_unknown(parsed, {"enabled", "types", "max_per_cycle", "confirmations"}, "events")
-    enabled = current.enabled if "enabled" not in parsed else bool(parsed["enabled"])
+    enabled = current.enabled
+    if "enabled" in parsed and parsed["enabled"] is not None:
+        enabled = _config_bool(parsed["enabled"], "events.enabled")
     types = current.types
     if "types" in parsed and parsed["types"] is not None:
         raw_types = parsed["types"]
@@ -792,6 +794,14 @@ def _pool_tuple(value: object) -> tuple[str, ...]:
     if isinstance(value, list):
         return tuple(str(part).strip() for part in value if str(part).strip())
     raise ConfigError("disk pools must be a list or a comma-separated string")
+
+
+def _config_bool(value: object, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return _bool_value(value, name)
+    raise ConfigError(f"{name} must be true or false")
 
 
 def _bool_value(value: str, name: str) -> bool:
