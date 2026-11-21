@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -33,20 +34,76 @@ def test_license_and_contributing() -> None:
     assert ".coderabbit.yaml" in contributing
     assert "rate-limited" in contributing
     assert "does not count" in contributing
+    assert "earlier commit" in contributing
+    assert "latest commit" in contributing
+
+
+def _glob_match(pattern: str, path: str) -> bool:
+    """Match one CodeRabbit path glob. `**` crosses directories. `*` does not."""
+    regex: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            regex.append("(?:.*/)?")
+            index += 3
+        elif pattern.startswith("**", index):
+            regex.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            regex.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            regex.append("[^/]")
+            index += 1
+        else:
+            regex.append(re.escape(pattern[index]))
+            index += 1
+    return re.fullmatch("".join(regex), path) is not None
+
+
+def _filter_includes(path: str, filters: list[str]) -> bool:
+    """Last matching filter wins, which is how an exclusion after `**` drops a file."""
+    included = False
+    for raw in filters:
+        negate = raw.startswith("!")
+        pattern = raw[1:] if negate else raw
+        if _glob_match(pattern, path):
+            included = not negate
+    return included
 
 
 def test_coderabbit_skips_generated_dashboards() -> None:
     config = yaml.safe_load((ROOT / ".coderabbit.yaml").read_text(encoding="utf-8"))
     reviews = config["reviews"]
     filters = reviews["path_filters"]
-    assert "!dashboards/grafana/*.json" in filters
-    assert "!dashboards/dynatrace/**/*.json" in filters
     assert reviews["auto_review"]["enabled"] is True
     assert reviews["auto_review"]["drafts"] is False
     assert reviews["auto_review"]["auto_pause_after_reviewed_commits"] == 0
     paths = [item["path"] for item in reviews["path_instructions"]]
     assert "src/**" in paths
     assert "dashboards/**" in paths
+
+    included = (
+        "src/zvm_otel_exporter/cli.py",
+        "README.md",
+        "tests/test_docs.py",
+        "dashboards/grafana/alerts.yml",
+        "dashboards/build_pack.py",
+    )
+    excluded = (
+        "dashboards/grafana/zvm.json",
+        "dashboards/dynatrace/x/y.json",
+    )
+    for path in included:
+        assert _filter_includes(path, filters), path
+    for path in excluded:
+        assert not _filter_includes(path, filters), path
+
+    narrowed = ["src/**" if item == "**" else item for item in filters]
+    assert _filter_includes("src/zvm_otel_exporter/cli.py", narrowed)
+    assert not _filter_includes("README.md", narrowed)
+    assert not _filter_includes("tests/test_docs.py", narrowed)
+    assert not _filter_includes("dashboards/grafana/alerts.yml", narrowed)
 
 
 def test_grafana_dashboard_and_examples() -> None:

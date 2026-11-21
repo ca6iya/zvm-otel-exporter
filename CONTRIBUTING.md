@@ -90,10 +90,11 @@ the alert rules.
 A maintainer still approves the change. CodeRabbit does not grant that
 approval. Roles are in [GOVERNANCE.md](GOVERNANCE.md).
 
-Do not merge while the latest commit has no CodeRabbit review, or while an
-actionable CodeRabbit comment on that commit is still open. A rate-limited
-review does not count as a review. The review on the pull request is the one
-that counts. Ask for it there.
+Do not merge until CodeRabbit has reviewed the latest commit and every
+actionable CodeRabbit comment on the pull request is resolved. That includes
+a comment left on an earlier commit. A later commit does not retire it. A
+rate-limited review does not count as a review. The review on the pull
+request is the one that counts. Ask for it there.
 
 The `CodeRabbit` check stays pending while a review is running, and it fails
 when a review errors. A rate-limited review still reports success, which is
