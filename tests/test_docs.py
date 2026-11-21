@@ -62,14 +62,15 @@ def _glob_match(pattern: str, path: str) -> bool:
 
 
 def _filter_includes(path: str, filters: list[str]) -> bool:
-    """Last matching filter wins, which is how an exclusion after `**` drops a file."""
-    included = False
-    for raw in filters:
-        negate = raw.startswith("!")
-        pattern = raw[1:] if negate else raw
-        if _glob_match(pattern, path):
-            included = not negate
-    return included
+    """Match CodeRabbit path filters. A positive pattern limits the set. With
+    none, every path starts included. An exclusion then drops a path, in any
+    order.
+    """
+    positives = [item for item in filters if not item.startswith("!")]
+    negatives = [item[1:] for item in filters if item.startswith("!")]
+    if positives and not any(_glob_match(pattern, path) for pattern in positives):
+        return False
+    return not any(_glob_match(pattern, path) for pattern in negatives)
 
 
 def test_coderabbit_skips_generated_dashboards() -> None:
@@ -104,6 +105,13 @@ def test_coderabbit_skips_generated_dashboards() -> None:
     assert not _filter_includes("README.md", narrowed)
     assert not _filter_includes("tests/test_docs.py", narrowed)
     assert not _filter_includes("dashboards/grafana/alerts.yml", narrowed)
+
+    reordered = [item for item in filters if item != "**"] + ["**"]
+    assert not _filter_includes("dashboards/grafana/zvm.json", reordered)
+    assert _filter_includes("README.md", reordered)
+    exclusions_only = [item for item in filters if item.startswith("!")]
+    assert _filter_includes("README.md", exclusions_only)
+    assert not _filter_includes("dashboards/grafana/zvm.json", exclusions_only)
 
 
 def test_grafana_dashboard_and_examples() -> None:
