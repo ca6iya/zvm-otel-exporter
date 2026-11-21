@@ -1,0 +1,33 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Synthetic demo config. feilong is the fixture server in this compose file,
+# not a z/VM system. test-admin-token is the mock's fixture value. Do not
+# reuse it for a real Feilong.
+
+feilong:
+  url: http://feilong:8080
+  admin_token: test-admin-token
+  auth: token
+  verify_tls: false
+  timeout: 10
+
+vmcp:
+  enabled: false
+
+server:
+  listen: 0.0.0.0
+  port: 9110
+
+scrape_interval: 30
+
+exporters:
+  prometheus: true
+  otlp: false
+
+events:
+  enabled: true
+  confirmations: 2
+  max_per_cycle: 500
+
+log_level: INFO
