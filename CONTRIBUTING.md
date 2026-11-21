@@ -78,3 +78,24 @@ those workflows green. How to run the alert tests locally is in
 [Testing the alert rules](docs/dashboards.md#testing-the-alert-rules). Describe
 how you tested the change. Live z/VM results are welcome and should name the
 z/VM and Feilong versions you used.
+
+## Code review
+
+[CodeRabbit](https://coderabbit.ai/) reviews every non-draft pull request to
+`main`. The settings are in [`.coderabbit.yaml`](.coderabbit.yaml). Generated
+Grafana and Dynatrace dashboard JSON is excluded, because
+`dashboards/build_pack.py` writes those files. Comment on the generator and
+the alert rules.
+
+A maintainer still approves the change. CodeRabbit does not grant that
+approval. Roles are in [GOVERNANCE.md](GOVERNANCE.md).
+
+Do not merge while the latest commit has no CodeRabbit review, or while an
+actionable CodeRabbit comment on that commit is still open. A rate-limited
+review does not count as a review. The review on the pull request is the one
+that counts. Ask for it there.
+
+The `CodeRabbit` check stays pending while a review is running, and it fails
+when a review errors. A rate-limited review still reports success, which is
+why the rule above is a maintainer check and not only a status check. Require
+that check in branch protection so an in-progress review cannot merge.
