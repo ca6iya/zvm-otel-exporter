@@ -16,6 +16,9 @@ use crate::monitor;
 use crate::procfs;
 use crate::sysinfo::{self, SYSINFO_CAP};
 
+/// `/proc` files can list every device. 1 MiB is enough for a guest and still bounded.
+const PROC_CAP: usize = 1024 * 1024;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Counter,
@@ -30,6 +33,9 @@ pub struct Point {
     pub kind: Kind,
     pub attributes: Vec<(String, String)>,
     pub value: f64,
+    /// Cumulative start, Unix nanoseconds. `0` means the source reset is unknown
+    /// and [`UnknownStarts`] must rebase the point before export.
+    pub start_unix_nano: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -66,11 +72,16 @@ impl Default for Paths {
 }
 
 pub fn collect(paths: &Paths) -> Result<Snapshot> {
-    let stat = read_text(&paths.proc_root.join("stat"), SYSINFO_CAP)?;
-    let meminfo = read_text(&paths.proc_root.join("meminfo"), SYSINFO_CAP)?;
-    let diskstats = read_text(&paths.proc_root.join("diskstats"), SYSINFO_CAP)?;
-    let netdev = read_text(&paths.proc_root.join("net/dev"), SYSINFO_CAP)?;
-    let cpus = procfs::parse_stat(&stat)?;
+    let stat_text = read_text(&paths.proc_root.join("stat"), PROC_CAP)?;
+    let meminfo = read_text(&paths.proc_root.join("meminfo"), PROC_CAP)?;
+    let diskstats = read_text(&paths.proc_root.join("diskstats"), PROC_CAP)?;
+    let netdev = read_text(&paths.proc_root.join("net/dev"), PROC_CAP)?;
+    let stat = procfs::parse_stat(&stat_text)?;
+    let cpus = stat.cpus;
+    let boot_ns = stat
+        .btime_seconds
+        .map(|seconds| seconds.saturating_mul(1_000_000_000))
+        .unwrap_or(0);
     let memory = procfs::parse_meminfo(&meminfo)?;
     let disks = procfs::parse_diskstats(&diskstats)?;
     let nics = procfs::parse_netdev(&netdev)?;
@@ -115,6 +126,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             kind: Kind::Gauge,
             attributes: resource.clone(),
             value: 1.0,
+            start_unix_nano: 0,
         });
     }
     points.push(Point {
@@ -124,6 +136,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
         kind: Kind::Gauge,
         attributes: Vec::new(),
         value: 1.0,
+        start_unix_nano: 0,
     });
     for cpu in cpus {
         points.push(Point {
@@ -137,6 +150,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
                 ("cpu.state".to_string(), cpu.state.to_string()),
             ],
             value: cpu.seconds,
+            start_unix_nano: boot_ns,
         });
     }
     points.push(gauge(
@@ -161,6 +175,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &disk.device,
             "device",
             disk.read_bytes,
+            boot_ns,
         ));
         points.push(counter_dir(
             LINUX_DISK_IO,
@@ -171,6 +186,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &disk.device,
             "device",
             disk.write_bytes,
+            boot_ns,
         ));
     }
     for nic in nics {
@@ -183,6 +199,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &nic.device,
             "network.interface.name",
             nic.receive_bytes,
+            boot_ns,
         ));
         points.push(counter_dir(
             LINUX_NETWORK_IO,
@@ -193,6 +210,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &nic.device,
             "network.interface.name",
             nic.transmit_bytes,
+            boot_ns,
         ));
     }
 
@@ -207,6 +225,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
                 kind: Kind::Counter,
                 attributes: attr.clone(),
                 value: guest.cpu_time_seconds,
+                start_unix_nano: 0,
             });
             points.push(Point {
                 name: HYPFS_GUEST_MEMORY_USAGE,
@@ -215,6 +234,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
                 kind: Kind::Gauge,
                 attributes: attr.clone(),
                 value: guest.memory_usage_bytes,
+                start_unix_nano: 0,
             });
             points.push(Point {
                 name: HYPFS_GUEST_MEMORY_LIMIT,
@@ -223,11 +243,20 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
                 kind: Kind::Gauge,
                 attributes: attr,
                 value: guest.memory_limit_bytes,
+                start_unix_nano: 0,
             });
         }
     }
 
     if let Some(path) = &paths.monitor_file {
+        let metadata = fs::metadata(path)
+            .map_err(|_| Error::new(format!("cannot read {}", path.display())))?;
+        if !metadata.is_file() {
+            return Err(Error::new(format!(
+                "monitor file must be a regular file: {}",
+                path.display()
+            )));
+        }
         let text = read_text(path, SYSINFO_CAP)?;
         for guest in monitor::parse_fixture(&text)? {
             points.push(Point {
@@ -237,6 +266,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
                 kind: Kind::Counter,
                 attributes: vec![("zvm.guest.id".to_string(), guest.id)],
                 value: guest.cpu_time_seconds,
+                start_unix_nano: 0,
             });
         }
     }
@@ -265,6 +295,7 @@ fn gauge(name: &'static str, description: &'static str, unit: &'static str, valu
         kind: Kind::Gauge,
         attributes: Vec::new(),
         value,
+        start_unix_nano: 0,
     }
 }
 
@@ -277,6 +308,7 @@ fn counter_dir(
     device: &str,
     device_key: &str,
     value: f64,
+    start_unix_nano: u64,
 ) -> Point {
     let mut attributes = vec![
         (device_key.to_string(), clip(device)),
@@ -290,6 +322,49 @@ fn counter_dir(
         kind: Kind::Counter,
         attributes,
         value,
+        start_unix_nano,
+    }
+}
+
+/// Rebases counters whose source reset is unknown.
+///
+/// The first sample in this process is the offset. Later samples export the
+/// increase since that sample, with the same start time, until the value goes
+/// backwards. `/proc` counters already carry `btime` and are left absolute.
+#[derive(Default)]
+pub struct UnknownStarts {
+    seen: std::collections::BTreeMap<String, (u64, f64)>,
+}
+
+impl UnknownStarts {
+    pub fn rebase(&mut self, snapshot: &mut Snapshot, now_ns: u64) {
+        for point in &mut snapshot.points {
+            if point.kind != Kind::Counter || point.start_unix_nano != 0 {
+                continue;
+            }
+            let key = format!(
+                "{}|{}",
+                point.name,
+                point
+                    .attributes
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            match self.seen.get(&key).copied() {
+                Some((start, offset)) if point.value + 1e-9 >= offset => {
+                    point.start_unix_nano = start;
+                    point.value -= offset;
+                }
+                _ => {
+                    let offset = point.value;
+                    self.seen.insert(key, (now_ns, offset));
+                    point.start_unix_nano = now_ns;
+                    point.value = 0.0;
+                }
+            }
+        }
     }
 }
 
@@ -312,10 +387,16 @@ fn read_text(path: &Path, cap: usize) -> Result<String> {
 fn read_bytes(path: &Path, cap: usize) -> Result<Vec<u8>> {
     let file =
         fs::File::open(path).map_err(|_| Error::new(format!("cannot read {}", path.display())))?;
-    let mut reader = std::io::Read::take(file, cap as u64);
+    let mut reader = std::io::Read::take(file, cap as u64 + 1);
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut reader, &mut bytes)
         .map_err(|_| Error::new(format!("cannot read {}", path.display())))?;
+    if bytes.len() > cap {
+        return Err(Error::new(format!(
+            "{} exceeds {cap} bytes; refusing a truncated parse",
+            path.display()
+        )));
+    }
     Ok(bytes)
 }
 
@@ -331,7 +412,11 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         let proc_root = root.join("proc");
         fs::create_dir_all(proc_root.join("net")).unwrap();
-        fs::write(proc_root.join("stat"), "cpu0 100 0 0 0 0 0 0 50 0 0\n").unwrap();
+        fs::write(
+            proc_root.join("stat"),
+            "cpu0 100 0 0 0 0 0 0 50 0 0\nbtime 1700000000\n",
+        )
+        .unwrap();
         fs::write(
             proc_root.join("meminfo"),
             "MemTotal: 1024 kB\nMemAvailable: 512 kB\n",
@@ -380,6 +465,7 @@ mod tests {
 
         let linux = point(&snapshot, LINUX_CPU_TIME, "steal");
         assert_eq!(linux.value, 0.5);
+        assert_eq!(linux.start_unix_nano, 1_700_000_000_000_000_000);
         let monitor = snapshot
             .points
             .iter()
@@ -422,5 +508,75 @@ mod tests {
                         .any(|(key, value)| key == "cpu.state" && value == state)
             })
             .unwrap()
+    }
+
+    #[test]
+    fn monitor_path_must_be_a_regular_file_and_must_fit() {
+        let root = std::env::temp_dir().join(format!("zvm-agent-monitor-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let proc_root = root.join("proc");
+        fs::create_dir_all(proc_root.join("net")).unwrap();
+        fs::write(proc_root.join("stat"), "cpu0 1 0 0 0 0 0 0 0 0 0\n").unwrap();
+        fs::write(
+            proc_root.join("meminfo"),
+            "MemTotal: 1024 kB\nMemAvailable: 512 kB\n",
+        )
+        .unwrap();
+        fs::write(proc_root.join("diskstats"), "").unwrap();
+        fs::write(proc_root.join("net/dev"), "").unwrap();
+        let paths = Paths {
+            sysinfo: root.join("missing-sysinfo"),
+            proc_root: proc_root.clone(),
+            hypfs: root.join("missing-hypfs"),
+            monitor_file: Some(proc_root),
+            host_name: String::new(),
+            system_name: String::new(),
+            guest_name: String::new(),
+            arch: "s390x".to_string(),
+        };
+        let error = collect(&paths).unwrap_err();
+        assert!(error.to_string().contains("regular file"));
+
+        let huge = root.join("huge.txt");
+        fs::write(&huge, vec![b'A'; SYSINFO_CAP + 1]).unwrap();
+        let error = collect(&Paths {
+            monitor_file: Some(huge),
+            ..paths
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("exceeds"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn unknown_counters_keep_a_stable_start_and_export_the_increase() {
+        let mut starts = UnknownStarts::default();
+        let mut first = sample_counter(5.0);
+        starts.rebase(&mut first, 100);
+        assert_eq!(first.points[0].value, 0.0);
+        assert_eq!(first.points[0].start_unix_nano, 100);
+        let mut second = sample_counter(8.0);
+        starts.rebase(&mut second, 200);
+        assert_eq!(second.points[0].value, 3.0);
+        assert_eq!(second.points[0].start_unix_nano, 100);
+        let mut reset = sample_counter(1.0);
+        starts.rebase(&mut reset, 300);
+        assert_eq!(reset.points[0].value, 0.0);
+        assert_eq!(reset.points[0].start_unix_nano, 300);
+    }
+
+    fn sample_counter(value: f64) -> Snapshot {
+        Snapshot {
+            resource: Vec::new(),
+            points: vec![Point {
+                name: MONITOR_GUEST_CPU_TIME,
+                description: "fixture",
+                unit: "s",
+                kind: Kind::Counter,
+                attributes: vec![("zvm.guest.id".to_string(), "LINUX1".to_string())],
+                value,
+                start_unix_nano: 0,
+            }],
+        }
     }
 }

@@ -58,18 +58,28 @@ pub fn parse_diag_2fc(bytes: &[u8]) -> Result<Vec<HypfsGuest>> {
             "diag_2fc buffer length is not a multiple of the guest count",
         ));
     }
-    let record_len = (len / count) as usize;
+    let record_len = usize::try_from(len / count)
+        .map_err(|_| Error::new("diag_2fc record is larger than this process can address"))?;
     if record_len < RECORD_LEN {
         return Err(Error::new(format!(
             "diag_2fc record is {record_len} bytes, shorter than the 112-byte struct"
         )));
     }
-    let body_end = HEADER_LEN + (count as usize) * record_len;
-    if bytes.len() < body_end {
+    let available = bytes.len() - HEADER_LEN;
+    if record_len > available {
+        return Err(Error::new(
+            "diag_2fc record is longer than the bytes after the header",
+        ));
+    }
+    let count_usize = count as usize;
+    let Some(needed) = count_usize.checked_mul(record_len) else {
+        return Err(Error::new("diag_2fc body length overflows"));
+    };
+    if needed > available {
         return Err(Error::new("diag_2fc file is shorter than the header says"));
     }
-    let mut guests = Vec::with_capacity(count as usize);
-    for index in 0..count as usize {
+    let mut guests = Vec::with_capacity(count_usize);
+    for index in 0..count_usize {
         let start = HEADER_LEN + index * record_len;
         let record = &bytes[start..start + RECORD_LEN];
         let id = guest_name(&record[104..104 + NAME_LEN])?;
@@ -119,24 +129,16 @@ fn be_u64(bytes: &[u8], offset: usize) -> u64 {
 }
 
 fn guest_name(raw: &[u8]) -> Result<String> {
-    let ebcdic = raw.iter().any(|byte| *byte > 0x7f);
+    // Live diag_2fc names are IBM037, including `$`, `#`, and `@` (0x5B, 0x7B, 0x7C).
+    // Those specials sit below 0x80, so the encoding cannot be guessed from the high bit.
     let mut name = String::new();
     for byte in raw {
-        let padding = *byte == 0 || (ebcdic && *byte == 0x40) || (!ebcdic && *byte == b' ');
-        if padding {
+        if *byte == 0 || *byte == 0x40 {
             continue;
         }
-        let ch = if ebcdic {
-            ibm037(*byte).ok_or_else(|| {
-                Error::new(format!("diag_2fc guest name byte {byte:#x} is not IBM037"))
-            })?
-        } else if byte.is_ascii_graphic() {
-            *byte as char
-        } else {
-            return Err(Error::new(format!(
-                "diag_2fc guest name byte {byte:#x} is not ASCII"
-            )));
-        };
+        let ch = ibm037(*byte).ok_or_else(|| {
+            Error::new(format!("diag_2fc guest name byte {byte:#x} is not IBM037"))
+        })?;
         name.push(ch);
     }
     Ok(name)
@@ -201,6 +203,28 @@ mod tests {
         );
         let parsed = parse_diag_2fc(&bytes).unwrap();
         assert_eq!(parsed, guests);
+    }
+
+    #[test]
+    fn hash_userid_round_trips_as_ibm037() {
+        let guests = vec![HypfsGuest {
+            id: "#".to_string(),
+            cpu_time_seconds: 1.0,
+            memory_usage_bytes: 1024.0,
+            memory_limit_bytes: 2048.0,
+        }];
+        let bytes = encode_diag_2fc(&guests).unwrap();
+        assert_eq!(bytes[64 + 104], 0x7b);
+        assert_eq!(parse_diag_2fc(&bytes).unwrap(), guests);
+    }
+
+    #[test]
+    fn oversized_record_length_is_rejected() {
+        let mut bytes = vec![0_u8; HEADER_LEN];
+        bytes[0..8].copy_from_slice(&0xffff_ffff_ffff_ffc0_u64.to_be_bytes());
+        bytes[26..34].copy_from_slice(&1_u64.to_be_bytes());
+        let error = parse_diag_2fc(&bytes).unwrap_err();
+        assert!(error.to_string().contains("longer"));
     }
 
     #[test]

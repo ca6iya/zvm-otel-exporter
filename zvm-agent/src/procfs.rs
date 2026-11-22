@@ -39,13 +39,26 @@ pub struct NetIo {
     pub transmit_bytes: f64,
 }
 
-pub fn parse_stat(text: &str) -> Result<Vec<CpuTime>> {
+#[derive(Debug, PartialEq)]
+pub struct Stat {
+    pub cpus: Vec<CpuTime>,
+    /// `btime` from `/proc/stat`, seconds since the Unix epoch. CPU, disk, and
+    /// network counters reset at boot, so this is their start time.
+    pub btime_seconds: Option<u64>,
+}
+
+pub fn parse_stat(text: &str) -> Result<Stat> {
     let mut out = Vec::new();
+    let mut btime_seconds = None;
     for raw in text.lines() {
         let mut fields = raw.split_whitespace();
         let Some(name) = fields.next() else {
             continue;
         };
+        if name == "btime" {
+            btime_seconds = fields.next().and_then(|value| value.parse().ok());
+            continue;
+        }
         if !(name.starts_with("cpu")
             && name[3..].chars().all(|ch| ch.is_ascii_digit())
             && !name[3..].is_empty())
@@ -72,7 +85,10 @@ pub fn parse_stat(text: &str) -> Result<Vec<CpuTime>> {
     if out.is_empty() {
         return Err(Error::new("/proc/stat has no per-cpu lines"));
     }
-    Ok(out)
+    Ok(Stat {
+        cpus: out,
+        btime_seconds,
+    })
 }
 
 pub fn parse_meminfo(text: &str) -> Result<Memory> {
@@ -169,16 +185,19 @@ cpu0 200 0 50 1000 0 0 0 25 0 0
 ";
         let parsed = parse_stat(text).unwrap();
         let user = parsed
+            .cpus
             .iter()
             .find(|row| row.cpu == "cpu0" && row.state == "user")
             .unwrap();
         assert_eq!(user.seconds, 2.0);
         let steal = parsed
+            .cpus
             .iter()
             .find(|row| row.cpu == "cpu0" && row.state == "steal")
             .unwrap();
         assert_eq!(steal.seconds, 0.25);
-        assert!(parsed.iter().all(|row| row.cpu != "cpu"));
+        assert!(parsed.cpus.iter().all(|row| row.cpu != "cpu"));
+        assert_eq!(parsed.btime_seconds, None);
     }
 
     #[test]
@@ -204,7 +223,8 @@ cpu0 200 0 50 1000 0 0 0 25 0 0
             return;
         };
         let parsed = parse_stat(&text).unwrap();
-        assert!(parsed.iter().any(|row| row.state == "steal"));
+        assert!(parsed.cpus.iter().any(|row| row.state == "steal"));
+        assert!(parsed.btime_seconds.is_some());
     }
 
     #[test]

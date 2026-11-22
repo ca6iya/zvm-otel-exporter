@@ -78,11 +78,13 @@ fn run(args: Vec<String>) -> zvm_agent::error::Result<()> {
     if endpoint.is_none() {
         print = true;
     }
-    let started = snapshot::unix_nanos();
+    let mut unknown_starts = snapshot::UnknownStarts::default();
     loop {
         let began = Instant::now();
-        let snapshot = snapshot::collect(&paths)?;
-        let body = otlp::metrics_json(&snapshot, started, snapshot::unix_nanos());
+        let mut snapshot = snapshot::collect(&paths)?;
+        let now = snapshot::unix_nanos();
+        unknown_starts.rebase(&mut snapshot, now);
+        let body = otlp::metrics_json(&snapshot, now);
         if print {
             println!("{body}");
         }

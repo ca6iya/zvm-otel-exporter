@@ -3,9 +3,10 @@
 
 //! `/proc/sysinfo` on Linux on Z.
 //!
-//! `VM00 Name` is a virtual-machine userid, not the z/VM system name. The
-//! control program closest to the hardware is the hypervisor string. The
-//! userid is the `Name` at the highest VM level.
+//! STSI lists `VM00` as the level closest to the hardware. Its control program
+//! is `zvm.hypervisor`. The Linux guest's userid is the `Name` at the highest
+//! VM level: `VM00` for a first-level guest, `VM01` when Linux is second-level.
+//! That matches the Feilong exporter. `VM00 Name` is never the z/VM system name.
 
 use std::collections::BTreeMap;
 

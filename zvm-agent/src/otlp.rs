@@ -6,13 +6,13 @@
 //! process has no TLS stack and no token handling.
 
 use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::time::Duration;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::snapshot::{Kind, Point, Snapshot};
 
-pub fn metrics_json(snapshot: &Snapshot, start_ns: u64, now_ns: u64) -> String {
+pub fn metrics_json(snapshot: &Snapshot, now_ns: u64) -> String {
     let mut metrics = String::new();
     let mut index = 0;
     while index < snapshot.points.len() {
@@ -25,7 +25,7 @@ pub fn metrics_json(snapshot: &Snapshot, start_ns: u64, now_ns: u64) -> String {
         if !metrics.is_empty() {
             metrics.push(',');
         }
-        metrics.push_str(&metric_json(&snapshot.points[index..end], start_ns, now_ns));
+        metrics.push_str(&metric_json(&snapshot.points[index..end], now_ns));
         index = end;
     }
     format!(
@@ -38,8 +38,7 @@ pub fn metrics_json(snapshot: &Snapshot, start_ns: u64, now_ns: u64) -> String {
 
 pub fn post_metrics(endpoint: &str, body: &str, timeout: Duration) -> Result<()> {
     let url = parse_http(endpoint)?;
-    let mut stream = TcpStream::connect((url.host.as_str(), url.port))
-        .map_err(|_| Error::new(format!("cannot connect to {}:{}", url.host, url.port)))?;
+    let mut stream = connect_timeout(&url.host, url.port, timeout)?;
     stream
         .set_read_timeout(Some(timeout))
         .map_err(|_| Error::new("cannot set read timeout"))?;
@@ -57,16 +56,76 @@ pub fn post_metrics(endpoint: &str, body: &str, timeout: Duration) -> Result<()>
     stream
         .write_all(request.as_bytes())
         .map_err(|_| Error::new("cannot write OTLP request"))?;
-    let mut response = String::new();
+    let mut response = Vec::new();
     stream
-        .take(2048)
-        .read_to_string(&mut response)
+        .take(RESPONSE_CAP)
+        .read_to_end(&mut response)
         .map_err(|_| Error::new("cannot read OTLP response"))?;
+    let truncated = response.len() == RESPONSE_CAP as usize;
+    let response = String::from_utf8_lossy(&response);
     let status = response.split_whitespace().nth(1).unwrap_or("0");
     if !status.starts_with('2') {
         return Err(Error::new(format!("OTLP export returned HTTP {status}")));
     }
+    let rejected = rejected_data_points(&response, truncated)?;
+    if rejected > 0 {
+        return Err(Error::new(format!(
+            "OTLP export rejected {rejected} data points"
+        )));
+    }
     Ok(())
+}
+
+const RESPONSE_CAP: u64 = 8192;
+
+fn connect_timeout(host: &str, port: u16, timeout: Duration) -> Result<TcpStream> {
+    let addrs = (host, port)
+        .to_socket_addrs()
+        .map_err(|_| Error::new(format!("cannot resolve {host}:{port}")))?;
+    let deadline = Instant::now() + timeout;
+    let mut saw_address = false;
+    for addr in addrs {
+        saw_address = true;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        if let Ok(stream) = TcpStream::connect_timeout(&addr, remaining) {
+            return Ok(stream);
+        }
+    }
+    if !saw_address {
+        return Err(Error::new(format!("cannot resolve {host}:{port}")));
+    }
+    Err(Error::new(format!("cannot connect to {host}:{port}")))
+}
+
+fn rejected_data_points(response: &str, truncated: bool) -> Result<u64> {
+    let body = response
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .unwrap_or("");
+    match rejected_count(body) {
+        Some(count) => Ok(count),
+        None if truncated => Err(Error::new(
+            "OTLP response was truncated before rejectedDataPoints could be read",
+        )),
+        None => Ok(0),
+    }
+}
+
+fn rejected_count(body: &str) -> Option<u64> {
+    const KEY: &str = "\"rejectedDataPoints\"";
+    let rest = body.split_once(KEY)?.1.trim_start();
+    let rest = rest.strip_prefix(':')?.trim_start();
+    let digits = rest
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() || digits.len() == rest.len() {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 struct HttpUrl {
@@ -102,11 +161,11 @@ fn parse_http(endpoint: &str) -> Result<HttpUrl> {
     Ok(HttpUrl { host, port, path })
 }
 
-fn metric_json(points: &[Point], start_ns: u64, now_ns: u64) -> String {
+fn metric_json(points: &[Point], now_ns: u64) -> String {
     let first = &points[0];
     let data_points: Vec<String> = points
         .iter()
-        .map(|point| data_point(point, start_ns, now_ns))
+        .map(|point| data_point(point, now_ns))
         .collect();
     let body = match first.kind {
         Kind::Counter => format!(
@@ -124,9 +183,9 @@ fn metric_json(points: &[Point], start_ns: u64, now_ns: u64) -> String {
     )
 }
 
-fn data_point(point: &Point, start_ns: u64, now_ns: u64) -> String {
+fn data_point(point: &Point, now_ns: u64) -> String {
     let start = if point.kind == Kind::Counter {
-        format!(",\"startTimeUnixNano\":\"{start_ns}\"")
+        format!(",\"startTimeUnixNano\":\"{}\"", point.start_unix_nano)
     } else {
         String::new()
     };
@@ -197,6 +256,7 @@ mod tests {
                     kind: Kind::Counter,
                     attributes: vec![("cpu.state".to_string(), "steal".to_string())],
                     value: 0.25,
+                    start_unix_nano: 1_700_000_000_000_000_000,
                 },
                 Point {
                     name: MONITOR_GUEST_CPU_TIME,
@@ -205,12 +265,15 @@ mod tests {
                     kind: Kind::Counter,
                     attributes: vec![("zvm.guest.id".to_string(), "LINUX1".to_string())],
                     value: 2.0,
+                    start_unix_nano: 20,
                 },
             ],
         };
-        let json = metrics_json(&snapshot, 10, 20);
+        let json = metrics_json(&snapshot, 30);
         assert!(json.contains("\"name\":\"zvm.linux.cpu.time\""));
+        assert!(json.contains("\"startTimeUnixNano\":\"1700000000000000000\""));
         assert!(json.contains("\"name\":\"zvm.monitor.guest.cpu.time\""));
+        assert!(json.contains("\"startTimeUnixNano\":\"20\""));
         assert!(json.contains("ZVMLPAR1"));
         assert!(json.contains("\"aggregationTemporality\":2"));
         assert!(!json.contains("zvm.guest.cpu.time"));
@@ -237,5 +300,16 @@ mod tests {
         )
         .unwrap();
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn partial_success_reports_rejected_points_and_does_not_invent_zero() {
+        let body = "HTTP/1.1 200 OK\r\nContent-Length: 48\r\n\r\n{\"partialSuccess\":{\"rejectedDataPoints\":3}}";
+        assert_eq!(rejected_data_points(body, false).unwrap(), 3);
+        let zero = "HTTP/1.1 200 OK\r\n\r\n{\"partialSuccess\":{\"rejectedDataPoints\":0}}";
+        assert_eq!(rejected_data_points(zero, false).unwrap(), 0);
+        let empty = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+        assert_eq!(rejected_data_points(empty, false).unwrap(), 0);
+        assert!(rejected_data_points(empty, true).is_err());
     }
 }
