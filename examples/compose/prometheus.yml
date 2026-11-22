@@ -1,0 +1,19 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Synthetic demo. The target is the fixture exporter, not a z/VM system.
+# The job name matches the ZvmExporterProcessDown alert.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: zvm-otel-exporter
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - exporter:9110

@@ -17,7 +17,7 @@ The current release line is 0.2.x. State-change events are on main and are the 0
 | Right-sizing report | proposed | [#10](https://github.com/ca6iya/zvm-otel-exporter/issues/10) |
 | PyPI, RPM, and Ansible packaging | proposed | [#11](https://github.com/ca6iya/zvm-otel-exporter/issues/11) |
 | OpenTelemetry Collector reference configs | proposed | [#12](https://github.com/ca6iya/zvm-otel-exporter/issues/12) |
-| Docker Compose demo | proposed | [#13](https://github.com/ca6iya/zvm-otel-exporter/issues/13) |
+| Docker Compose demo | demo, fixture only | [#13](https://github.com/ca6iya/zvm-otel-exporter/issues/13) |
 
 The issues use the `enhancement` label. A `roadmap` label could not be created with the token available to this change (the labels API returned 403). A maintainer can add that label later.
 
@@ -119,7 +119,7 @@ Privileges: none.
 
 ## 9. Docker Compose demo
 
-Status: proposed. To be validated on a test system.
+Status: demo in [`examples/compose/docker-compose.yaml`](examples/compose/docker-compose.yaml). The fixture is synthetic. It has not been run on a test z/VM system, and it is not a supported install method.
 
 Rationale: a compose file that starts the fixture Feilong server, the exporter, Prometheus, and Grafana with the dashboard pack lets someone see the boards without a mainframe.
 

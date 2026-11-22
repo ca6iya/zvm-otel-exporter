@@ -1,0 +1,54 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Synthetic demo. The Feilong service is the packaged fixture, not a z/VM
+# system. Image tags are pinned. test-admin-token is the fixture token.
+
+name: zvm-otel-exporter-demo
+
+services:
+  feilong:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: zvm-otel-exporter:demo
+    entrypoint: ["zvm-otel-exporter-mock"]
+    command: ["--listen", "0.0.0.0", "--port", "8080"]
+    # The image healthcheck probes :9110. This process does not serve it.
+    healthcheck:
+      disable: true
+
+  exporter:
+    image: zvm-otel-exporter:demo
+    depends_on:
+      - feilong
+    volumes:
+      - ./exporter.yaml:/etc/zvm-exporter/config.yaml:ro
+    ports:
+      - "127.0.0.1:9110:9110"
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    depends_on:
+      - exporter
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../dashboards/grafana/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:12.4.15
+    depends_on:
+      - prometheus
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ../../dashboards/grafana/provisioning.yaml:/etc/grafana/provisioning/dashboards/zvm.yaml:ro
+      - ../../dashboards/grafana:/var/lib/grafana/dashboards/zvm:ro
+    ports:
+      - "127.0.0.1:3000:3000"

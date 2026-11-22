@@ -164,6 +164,20 @@ docker run --rm -p 9110:9110 \
 
 The image runs as uid 65534 and expects the config file at `/etc/zvm-exporter/config.yaml`. Prefer passing the admin token with `-e ZVM_EXPORTER_FEILONG_ADMIN_TOKEN` (forwarded from the host environment) or an env file over writing it into the image.
 
+### Fixture demo
+
+[`examples/compose/docker-compose.yaml`](examples/compose/docker-compose.yaml) starts the packaged Feilong fixture, the exporter, Prometheus, and Grafana with the dashboard pack. This is synthetic. It is not a z/VM system. `test-admin-token` is the fixture token. Prometheus `v3.16.0` and Grafana `12.4.15` are pinned.
+
+```bash
+docker compose -f examples/compose/docker-compose.yaml up --build
+```
+
+* Exporter metrics: <http://127.0.0.1:9110/metrics>
+* Prometheus: <http://127.0.0.1:9090>
+* Grafana: <http://127.0.0.1:3000> as an anonymous viewer. The image's admin user is unchanged.
+
+The Prometheus job name is `zvm-otel-exporter`, which is what `ZvmExporterProcessDown` matches. Events are enabled. The fixture does not change, so the first scrapes are a baseline and no guest logon or logoff is expected. `vmcp` is off, so paging and spool panels stay empty. Ports listen on `127.0.0.1` only.
+
 ### systemd
 
 Create a system user and install the unit from [`examples/systemd/zvm-otel-exporter.service`](examples/systemd/zvm-otel-exporter.service):
