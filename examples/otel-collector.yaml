@@ -1,5 +1,7 @@
 # OpenTelemetry Collector that receives z/VM metrics and exposes them to
 # Prometheus. A commented Dynatrace exporter is included below.
+# Backend templates, with no tokens, are otel-collector-dynatrace.yaml,
+# otel-collector-grafana.yaml, and otel-collector-splunk.yaml.
 #
 # The exporter sends OTLP/gRPC to collector:4317 by default:
 #   zvm-otel-exporter --otlp --otlp-endpoint http://otel-collector:4317 --otlp-protocol grpc
@@ -19,6 +21,8 @@ exporters:
   prometheus:
     endpoint: 0.0.0.0:8889
   # Direct OTLP/HTTP to Dynatrace. The collector appends /v1/metrics.
+  # Dynatrace drops cumulative counters. Use otel-collector-dynatrace.yaml,
+  # which runs cumulativetodelta before export.
   # Create an API token with the metrics.ingest scope.
   # otlphttp/dynatrace:
   #   endpoint: https://${DT_ENV_ID}.live.dynatrace.com/api/v2/otlp

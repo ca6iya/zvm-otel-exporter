@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional state-change events. Off by default. The first scrape is a baseline. Later changes become OTLP logs and `zvm.events`, with a per-cycle cap and flap suppression. No extra Feilong or CP calls. A carried or incomplete scrape does not confirm a logon or logoff.
 - `ROADMAP.md` for later collector and packaging work.
 - A Docker Compose demo for the fixture Feilong server, the exporter, Prometheus, and Grafana. The fixture is synthetic. Image tags are pinned.
+- Collector templates for Dynatrace, Grafana Cloud, and Splunk Observability Cloud. They are templates. No tokens, and none of them has been run against a live tenant. The Dynatrace template converts cumulative sums to delta, because Dynatrace does not ingest cumulative counters.
 
 ### Changed
 

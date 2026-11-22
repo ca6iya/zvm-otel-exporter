@@ -123,12 +123,46 @@ def test_grafana_dashboard_and_examples() -> None:
     collector = (ROOT / "examples" / "otel-collector.yaml").read_text(encoding="utf-8")
     assert "otlp" in collector
     assert "dynatrace" in collector.lower()
+    assert "otel-collector-dynatrace.yaml" in collector
+    assert "otel-collector-grafana.yaml" in collector
+    assert "otel-collector-splunk.yaml" in collector
     unit = (ROOT / "examples" / "systemd" / "zvm-otel-exporter.service").read_text()
     assert "9110" in (ROOT / "README.md").read_text(encoding="utf-8")
     assert "zvm-otel-exporter" in unit
     workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "pytest" in workflow
     assert "ruff check" in workflow
+
+
+def test_collector_templates_keep_tokens_in_the_environment() -> None:
+    names = {
+        "otel-collector-dynatrace.yaml": ("otlphttp/dynatrace", "${env:DT_OTLP_ENDPOINT}"),
+        "otel-collector-grafana.yaml": ("otlphttp/grafana", "${env:GRAFANA_OTLP_ENDPOINT}"),
+        "otel-collector-splunk.yaml": ("signalfx", "${env:SPLUNK_REALM}"),
+    }
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for name, (exporter, placeholder) in names.items():
+        text = (ROOT / "examples" / name).read_text(encoding="utf-8")
+        parsed = yaml.safe_load(text)
+        assert exporter in parsed["exporters"]
+        assert parsed["service"]["pipelines"]["metrics"]["exporters"] == [exporter]
+        assert placeholder in text
+        assert "not been exercised" in text
+        assert "Api-Token dt" not in text
+        assert "Basic dGVzd" not in text
+        assert name in readme
+    dynatrace = yaml.safe_load(
+        (ROOT / "examples" / "otel-collector-dynatrace.yaml").read_text(encoding="utf-8")
+    )
+    # Wiring only. CI does not run a collector, so this does not show that
+    # cumulative values 10 and 15 become a delta of 5.
+    assert dynatrace["service"]["pipelines"]["metrics"]["processors"] == [
+        "cumulativetodelta",
+        "batch",
+    ]
+    assert dynatrace["processors"]["cumulativetodelta"]["initial_value"] == "drop"
+    assert "cumulative OTLP intake" not in readme
+    assert "does not ingest a cumulative counter" in readme
 
 
 def test_version_matches_metadata() -> None:

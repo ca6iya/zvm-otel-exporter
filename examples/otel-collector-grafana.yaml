@@ -1,0 +1,41 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Template for a collector that forwards this exporter's OTLP to Grafana Cloud.
+# Copy the endpoint and the Authorization value from the stack's OpenTelemetry
+# tile. The host depends on the stack, so this file does not name a region.
+# GRAFANA_OTLP_ENDPOINT is that base URL, with no /v1/metrics suffix. The
+# collector appends the signal path.
+# GRAFANA_OTLP_AUTHORIZATION is the tile's header value, including the word
+# Basic. It stays in the environment.
+# This file has not been exercised against a live Grafana Cloud stack.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlphttp/grafana:
+    endpoint: ${env:GRAFANA_OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:GRAFANA_OTLP_AUTHORIZATION}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/grafana]
+    # State-change events are OTLP logs and stay off until events.enabled
+    # is true. The same Grafana endpoint accepts logs. Uncomment to send them.
+    # logs:
+    #   receivers: [otlp]
+    #   processors: [batch]
+    #   exporters: [otlphttp/grafana]
