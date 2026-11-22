@@ -16,7 +16,7 @@ This is a successor to [zvm_exporter](https://github.com/zvmexporter/zvm_exporte
 
 It has been tested against a fixture Feilong server. It has not yet been run against a live z/VM system. Treat the unit conversions in the metrics table as a contract to confirm on real hardware.
 
-[`zvm-agent/`](zvm-agent/README.md) is a separate process for the in-guest path. It reads `/proc`, `/proc/sysinfo`, and s390 hypfs, and it can export a monitor fixture. It does not replace the Feilong scrape, and it does not open `/dev/monreader`. `zvm.linux.cpu.time` (Linux `/proc/stat`, including steal) and `zvm.monitor.guest.cpu.time` (the fixture) are different series from `zvm.guest.cpu.time` below.
+[`zvm-agent/`](zvm-agent/README.md) is a separate process for the in-guest path. It reads `/proc`, `/proc/sysinfo`, and s390 hypfs, classifies Java, Tomcat, WebLogic, and HTTP server processes, and it can export a monitor fixture. It does not replace the Feilong scrape, and it does not open `/dev/monreader`. `zvm.linux.cpu.time` (Linux `/proc/stat`, including steal) and `zvm.monitor.guest.cpu.time` (the fixture) are different series from `zvm.guest.cpu.time` below.
 
 ## System identity
 

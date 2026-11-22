@@ -13,5 +13,6 @@ pub mod hypfs;
 pub mod monitor;
 pub mod otlp;
 pub mod procfs;
+pub mod runtime;
 pub mod snapshot;
 pub mod sysinfo;

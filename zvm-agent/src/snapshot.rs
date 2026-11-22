@@ -8,12 +8,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::contract::{
     self, AGENT_UP, HYPFS_GUEST_CPU_TIME, HYPFS_GUEST_MEMORY_LIMIT, HYPFS_GUEST_MEMORY_USAGE,
     LINUX_CPU_TIME, LINUX_DISK_IO, LINUX_MEMORY_LIMIT, LINUX_MEMORY_USAGE, LINUX_NETWORK_IO,
-    LINUX_SYSTEM_INFO, MONITOR_GUEST_CPU_TIME,
+    LINUX_SYSTEM_INFO, MONITOR_GUEST_CPU_TIME, RUNTIME_CPU_TIME, RUNTIME_MEMORY, RUNTIME_PROCESSES,
+    RUNTIME_THREADS, RUNTIME_UP,
 };
 use crate::error::{Error, Result};
 use crate::hypfs;
 use crate::monitor;
 use crate::procfs;
+use crate::runtime;
 use crate::sysinfo::{self, SYSINFO_CAP};
 
 /// `/proc` files can list every device. 1 MiB is enough for a guest and still bounded.
@@ -212,6 +214,55 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             nic.transmit_bytes,
             0,
         ));
+    }
+
+    for row in runtime::scan(&paths.proc_root) {
+        let attr = vec![("runtime".to_string(), row.runtime.to_string())];
+        points.push(Point {
+            name: RUNTIME_UP,
+            description: "1 when at least one process of this runtime is running.",
+            unit: "1",
+            kind: Kind::Gauge,
+            attributes: attr.clone(),
+            value: if row.processes > 0 { 1.0 } else { 0.0 },
+            start_unix_nano: 0,
+        });
+        points.push(Point {
+            name: RUNTIME_PROCESSES,
+            description: "Processes classified as this runtime. Command lines are not labels.",
+            unit: "{process}",
+            kind: Kind::Gauge,
+            attributes: attr.clone(),
+            value: row.processes as f64,
+            start_unix_nano: 0,
+        });
+        points.push(Point {
+            name: RUNTIME_CPU_TIME,
+            description: "Sum of user and system CPU time for this runtime.",
+            unit: "s",
+            kind: Kind::Counter,
+            attributes: attr.clone(),
+            value: row.cpu_seconds,
+            start_unix_nano: boot_ns,
+        });
+        points.push(Point {
+            name: RUNTIME_MEMORY,
+            description: "Sum of resident memory for this runtime. Not JVM heap.",
+            unit: "By",
+            kind: Kind::Gauge,
+            attributes: attr.clone(),
+            value: row.memory_bytes,
+            start_unix_nano: 0,
+        });
+        points.push(Point {
+            name: RUNTIME_THREADS,
+            description: "Sum of threads for this runtime.",
+            unit: "{thread}",
+            kind: Kind::Gauge,
+            attributes: attr,
+            value: row.threads as f64,
+            start_unix_nano: 0,
+        });
     }
 
     if paths.hypfs.is_file() {
