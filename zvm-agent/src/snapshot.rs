@@ -216,7 +216,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
         ));
     }
 
-    for row in runtime::scan(&paths.proc_root) {
+    for row in runtime::scan(&paths.proc_root)? {
         let attr = vec![("runtime".to_string(), row.runtime.to_string())];
         points.push(Point {
             name: RUNTIME_UP,
@@ -238,12 +238,12 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
         });
         points.push(Point {
             name: RUNTIME_CPU_TIME,
-            description: "Sum of user and system CPU time for this runtime.",
+            description: "Current sum of CPU seconds for processes of this runtime. It drops when a process exits.",
             unit: "s",
-            kind: Kind::Counter,
+            kind: Kind::Gauge,
             attributes: attr.clone(),
             value: row.cpu_seconds,
-            start_unix_nano: boot_ns,
+            start_unix_nano: 0,
         });
         points.push(Point {
             name: RUNTIME_MEMORY,

@@ -110,13 +110,13 @@ pub fn contract() -> &'static [Series] {
             name: RUNTIME_CPU_TIME,
             origin: Origin::GuestFile,
             unit: "s",
-            note: "Sum of user and system CPU time from /proc/pid/stat for that runtime.",
+            note: "Current sum of CPU seconds for running processes of that runtime. A gauge, because it drops when a process exits.",
         },
         Series {
             name: RUNTIME_MEMORY,
             origin: Origin::GuestFile,
             unit: "By",
-            note: "Sum of resident set size. This is not JVM heap.",
+            note: "Sum of VmRSS. This is not JVM heap.",
         },
         Series {
             name: RUNTIME_THREADS,

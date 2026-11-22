@@ -9,13 +9,13 @@
 //! `/proc`.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
+use crate::error::{Error, Result};
 use crate::procfs::USER_HZ;
 
-const MAX_PIDS: usize = 4096;
 const CMDLINE_CAP: usize = 4096;
-const PAGE_SIZE: f64 = 4096.0;
 
 const RUNTIMES: [&str; 4] = ["java", "tomcat", "weblogic", "http"];
 
@@ -51,72 +51,80 @@ pub struct RuntimeTotals {
 struct Acc {
     processes: u64,
     cpu_ticks: u64,
-    rss_pages: u64,
+    rss_bytes: u64,
     threads: u64,
 }
 
-pub fn scan(proc_root: &Path) -> Vec<RuntimeTotals> {
+pub fn scan(proc_root: &Path) -> Result<Vec<RuntimeTotals>> {
     let mut acc = [Acc::default(); 4];
-    let mut pids: Vec<u32> = Vec::new();
-    if let Ok(entries) = fs::read_dir(proc_root) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else {
-                continue;
-            };
-            let Ok(pid) = name.parse::<u32>() else {
-                continue;
-            };
-            pids.push(pid);
+    let entries = fs::read_dir(proc_root)
+        .map_err(|_| Error::new(format!("cannot list processes in {}", proc_root.display())))?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) if err.kind() == ErrorKind::NotFound => continue,
+            Err(_) => {
+                return Err(Error::new(format!(
+                    "cannot list processes in {}",
+                    proc_root.display()
+                )))
+            }
+        };
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.parse::<u32>().is_err() {
+            continue;
         }
-    }
-    pids.sort_unstable();
-    pids.truncate(MAX_PIDS);
-    for pid in pids {
-        let dir = proc_root.join(pid.to_string());
+        let dir = entry.path();
         let Some(kind) = classify(&read_comm(&dir), &read_cmdline(&dir)) else {
             continue;
         };
-        let Some((cpu_ticks, rss_pages, stat_threads)) = read_stat(&dir) else {
+        let Some((cpu_ticks, stat_threads)) = read_stat(&dir) else {
             continue;
         };
-        let threads = read_threads(&dir).unwrap_or(stat_threads);
+        let (threads, rss_bytes) = read_status(&dir);
         let slot = &mut acc[kind.index()];
         slot.processes += 1;
         slot.cpu_ticks += cpu_ticks;
-        slot.rss_pages += rss_pages;
-        slot.threads += threads;
+        slot.rss_bytes += rss_bytes;
+        slot.threads += threads.unwrap_or(stat_threads);
     }
-    RUNTIMES
+    Ok(RUNTIMES
         .iter()
         .enumerate()
         .map(|(index, runtime)| RuntimeTotals {
             runtime,
             processes: acc[index].processes,
             cpu_seconds: (acc[index].cpu_ticks as f64) / USER_HZ,
-            memory_bytes: (acc[index].rss_pages as f64) * PAGE_SIZE,
+            memory_bytes: acc[index].rss_bytes as f64,
             threads: acc[index].threads,
         })
-        .collect()
+        .collect())
+}
+
+fn is_jvm(comm: &str, cmdline: &str) -> bool {
+    comm == "java" || cmdline.contains("/bin/java") || cmdline.starts_with("java ")
 }
 
 fn classify(comm: &str, cmdline: &str) -> Option<Runtime> {
     let comm = comm.trim();
     let lower = cmdline.to_ascii_lowercase();
-    if lower.contains("weblogic.server") {
-        return Some(Runtime::Weblogic);
-    }
-    if lower.contains("org.apache.catalina.startup.bootstrap")
-        || lower.contains("catalina.home")
-        || lower.contains("catalina.base")
-    {
-        return Some(Runtime::Tomcat);
+    if is_jvm(comm, &lower) {
+        if lower.contains("weblogic.server") {
+            return Some(Runtime::Weblogic);
+        }
+        if lower.contains("org.apache.catalina.startup.bootstrap")
+            || lower.contains("catalina.home")
+            || lower.contains("catalina.base")
+        {
+            return Some(Runtime::Tomcat);
+        }
+        return Some(Runtime::Java);
     }
     if matches!(comm, "httpd" | "nginx" | "apache2") {
         return Some(Runtime::Http);
-    }
-    if comm == "java" || lower.contains("/bin/java") || lower.starts_with("java ") {
-        return Some(Runtime::Java);
     }
     None
 }
@@ -145,7 +153,7 @@ fn read_cmdline(dir: &Path) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-fn read_stat(dir: &Path) -> Option<(u64, u64, u64)> {
+fn read_stat(dir: &Path) -> Option<(u64, u64)> {
     let text = fs::read_to_string(dir.join("stat")).ok()?;
     let end = text.rfind(')')?;
     let fields: Vec<&str> = text[end + 1..].split_whitespace().collect();
@@ -155,20 +163,24 @@ fn read_stat(dir: &Path) -> Option<(u64, u64, u64)> {
         .get(17)
         .and_then(|value| value.parse().ok())
         .unwrap_or(0);
-    let rss: u64 = fields
-        .get(21)
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(0);
-    Some((utime.saturating_add(stime), rss, threads))
+    Some((utime.saturating_add(stime), threads))
 }
 
-fn read_threads(dir: &Path) -> Option<u64> {
-    let text = fs::read_to_string(dir.join("status")).ok()?;
+fn read_status(dir: &Path) -> (Option<u64>, u64) {
+    let Ok(text) = fs::read_to_string(dir.join("status")) else {
+        return (None, 0);
+    };
+    let mut threads = None;
+    let mut rss_bytes = 0;
     for line in text.lines() {
-        let rest = line.strip_prefix("Threads:")?;
-        return rest.trim().parse().ok();
+        if let Some(rest) = line.strip_prefix("Threads:") {
+            threads = rest.trim().parse().ok();
+        } else if let Some(rest) = line.strip_prefix("VmRSS:") {
+            let kb = rest.split_whitespace().next().unwrap_or("");
+            rss_bytes = kb.parse::<u64>().unwrap_or(0).saturating_mul(1024);
+        }
     }
-    None
+    (threads, rss_bytes)
 }
 
 #[cfg(test)]
@@ -185,7 +197,7 @@ mod tests {
             "java",
             "java -Dpassword=secret org.apache.catalina.startup.Bootstrap",
             200,
-            4,
+            16,
         );
         write_proc(
             &root,
@@ -198,12 +210,15 @@ mod tests {
         write_proc(&root, 12, "java", "java -jar /opt/app.jar", 50, 2);
         write_proc(&root, 13, "nginx", "nginx: master process", 10, 1);
         write_proc(&root, 14, "bash", "bash", 1, 1);
-        let totals = scan(&root);
+        write_proc(&root, 15, "bash", "bash check.sh weblogic.Server", 90, 32);
+        let totals = scan(&root).unwrap();
+        let missing = scan(&root.join("missing"));
         let _ = fs::remove_dir_all(&root);
+        assert!(missing.is_err());
         let tomcat = totals.iter().find(|row| row.runtime == "tomcat").unwrap();
         assert_eq!(tomcat.processes, 1);
         assert_eq!(tomcat.cpu_seconds, 2.0);
-        assert_eq!(tomcat.memory_bytes, 4.0 * PAGE_SIZE);
+        assert_eq!(tomcat.memory_bytes, 16.0 * 1024.0);
         assert_eq!(tomcat.threads, 3);
         assert_eq!(
             totals
@@ -233,17 +248,20 @@ mod tests {
         assert!(!rendered.contains("secret"));
     }
 
-    fn write_proc(root: &Path, pid: u32, comm: &str, cmdline: &str, cpu_ticks: u64, rss: u64) {
+    fn write_proc(root: &Path, pid: u32, comm: &str, cmdline: &str, cpu_ticks: u64, rss_kb: u64) {
         let dir = root.join(pid.to_string());
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("comm"), format!("{comm}\n")).unwrap();
         let mut raw = cmdline.replace(' ', "\0");
         raw.push('\0');
         fs::write(dir.join("cmdline"), raw).unwrap();
-        // utime is field 14, num_threads field 20, rss field 24.
         let stat =
-            format!("{pid} ({comm}) S 1 1 1 0 -1 0 0 0 0 0 {cpu_ticks} 0 0 0 20 0 3 0 0 0 {rss}\n");
+            format!("{pid} ({comm}) S 1 1 1 0 -1 0 0 0 0 0 {cpu_ticks} 0 0 0 20 0 3 0 0 0 0\n");
         fs::write(dir.join("stat"), stat).unwrap();
-        fs::write(dir.join("status"), "Threads:\t3\n").unwrap();
+        fs::write(
+            dir.join("status"),
+            format!("Name:\t{comm}\nVmRSS:\t{rss_kb} kB\nThreads:\t3\n"),
+        )
+        .unwrap();
     }
 }
