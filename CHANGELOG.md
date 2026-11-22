@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - CodeRabbit reviews non-draft pull requests to `main`. Generated dashboard JSON is excluded. The merge rule is in `CONTRIBUTING.md`.
 
+### Fixed
+
+- `zvm.exporter.guest` is `VM00 Name`, the guest userid of this Linux. A higher VM level is an outer hypervisor. `zvm.hypervisor` stays `VM00 Control Program`.
+
 ## [0.2.0] - 2026-11-18
 
 ### Added

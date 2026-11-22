@@ -12,3 +12,4 @@ venv/
 htmlcov/
 *.log
 .mypy_cache/
+zvm-agent/target/
