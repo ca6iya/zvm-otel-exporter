@@ -30,6 +30,11 @@ pub const HYPFS_GUEST_CPU_TIME: &str = "zvm.linux.hypfs.guest.cpu.time";
 pub const HYPFS_GUEST_MEMORY_USAGE: &str = "zvm.linux.hypfs.guest.memory.usage";
 pub const HYPFS_GUEST_MEMORY_LIMIT: &str = "zvm.linux.hypfs.guest.memory.limit";
 pub const LINUX_SYSTEM_INFO: &str = "zvm.linux.system.info";
+pub const RUNTIME_UP: &str = "zvm.linux.runtime.up";
+pub const RUNTIME_PROCESSES: &str = "zvm.linux.runtime.processes";
+pub const RUNTIME_CPU_TIME: &str = "zvm.linux.runtime.cpu.time";
+pub const RUNTIME_MEMORY: &str = "zvm.linux.runtime.memory.usage";
+pub const RUNTIME_THREADS: &str = "zvm.linux.runtime.threads";
 pub const AGENT_UP: &str = "zvm.agent.up";
 pub const MONITOR_GUEST_CPU_TIME: &str = "zvm.monitor.guest.cpu.time";
 
@@ -88,6 +93,36 @@ pub fn contract() -> &'static [Series] {
             origin: Origin::GuestFile,
             unit: "1",
             note: "Always 1. Attributes are this guest's /proc/sysinfo identity.",
+        },
+        Series {
+            name: RUNTIME_UP,
+            origin: Origin::GuestFile,
+            unit: "1",
+            note: "1 when this guest has a Java, Tomcat, WebLogic, or HTTP server process. The label runtime is one of those four names.",
+        },
+        Series {
+            name: RUNTIME_PROCESSES,
+            origin: Origin::GuestFile,
+            unit: "{process}",
+            note: "Process count for that runtime. Command lines are not labels.",
+        },
+        Series {
+            name: RUNTIME_CPU_TIME,
+            origin: Origin::GuestFile,
+            unit: "s",
+            note: "Current sum of CPU seconds for running processes of that runtime. A gauge, because it drops when a process exits.",
+        },
+        Series {
+            name: RUNTIME_MEMORY,
+            origin: Origin::GuestFile,
+            unit: "By",
+            note: "Sum of VmRSS. This is not JVM heap.",
+        },
+        Series {
+            name: RUNTIME_THREADS,
+            origin: Origin::GuestFile,
+            unit: "{thread}",
+            note: "Sum of Threads from /proc/pid/status.",
         },
         Series {
             name: AGENT_UP,
