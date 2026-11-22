@@ -16,7 +16,7 @@ The current release line is 0.2.x. State-change events are on main and are the 0
 | CP Monitor via `monreader` | proposed, separate component | [#9](https://github.com/ca6iya/zvm-otel-exporter/issues/9) |
 | Right-sizing report | proposed | [#10](https://github.com/ca6iya/zvm-otel-exporter/issues/10) |
 | PyPI, RPM, and Ansible packaging | proposed | [#11](https://github.com/ca6iya/zvm-otel-exporter/issues/11) |
-| OpenTelemetry Collector reference configs | proposed | [#12](https://github.com/ca6iya/zvm-otel-exporter/issues/12) |
+| OpenTelemetry Collector reference configs | templates, not live | [#12](https://github.com/ca6iya/zvm-otel-exporter/issues/12) |
 | Docker Compose demo | demo, fixture only | [#13](https://github.com/ca6iya/zvm-otel-exporter/issues/13) |
 
 The issues use the `enhancement` label. A `roadmap` label could not be created with the token available to this change (the labels API returned 403). A maintainer can add that label later.
@@ -107,7 +107,7 @@ Privileges: none on z/VM. The publisher needs the package-repository credentials
 
 ## 8. OpenTelemetry Collector reference configs
 
-Status: proposed. To be validated on a test system.
+Status: templates next to [`examples/otel-collector.yaml`](examples/otel-collector.yaml). They have not been run against a live Dynatrace, Grafana, or Splunk tenant.
 
 Rationale: most sites will send OTLP to a collector and then to Dynatrace, Grafana, or Splunk. A commented config for each backend makes that path copyable.
 

@@ -1,0 +1,41 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Template for a collector that forwards this exporter's OTLP to Dynatrace.
+# Copy the OTLP base URL from the Dynatrace UI. Do not guess a region host.
+# A SaaS base often looks like
+# https://{your-environment-id}.live.dynatrace.com/api/v2/otlp
+# with no /v1/metrics suffix. The collector appends the signal path.
+# DT_API_TOKEN needs metrics.ingest. It stays in the environment.
+# This file has not been exercised against a live Dynatrace tenant.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlphttp/dynatrace:
+    endpoint: ${env:DT_OTLP_ENDPOINT}
+    headers:
+      Authorization: "Api-Token ${env:DT_API_TOKEN}"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/dynatrace]
+    # State-change events are OTLP logs. They stay off in the exporter until
+    # events.enabled is true. Uncomment this pipeline only after the token
+    # also has logs.ingest. The same exporter appends /v1/logs.
+    # logs:
+    #   receivers: [otlp]
+    #   processors: [batch]
+    #   exporters: [otlphttp/dynatrace]

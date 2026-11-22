@@ -1,0 +1,35 @@
+# Copyright 2026 z/VM OTel Exporter contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# Template for Splunk Observability Cloud metrics. The Splunk collector
+# gateway sends metrics with the signalfx exporter, which is in the
+# collector-contrib and Splunk distributions. The core collector does not
+# include it. SPLUNK_REALM and SPLUNK_ACCESS_TOKEN come from the Splunk UI
+# and stay in the environment.
+# State-change events are OTLP logs. This template does not send them.
+# The Splunk gateway sends logs through HEC, which is a different token and
+# endpoint, and this file does not invent that path.
+# This file has not been exercised against a live Splunk realm.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  signalfx:
+    realm: ${env:SPLUNK_REALM}
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [signalfx]
