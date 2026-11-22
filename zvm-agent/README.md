@@ -35,7 +35,7 @@ cargo run --manifest-path zvm-agent/Cargo.toml -- --interval 10 \
 
 `--otlp-endpoint` is `http://` only. Put TLS and tokens on the collector in front of Grafana or Dynatrace. With no endpoint, the process prints one OTLP JSON document and exits.
 
-`--sysinfo` defaults to `/proc/sysinfo`. A missing file is skipped. STSI lists `VM00` as the level closest to the hardware, so `VM00 Control Program` becomes `zvm.hypervisor`. The Linux userid is the `Name` at the highest VM level (`VM00` for a first-level guest, `VM01` when Linux is second-level). That userid is `zvm.exporter.guest`. It is not copied into `zvm.system.name`. Pass `--system-name` and `--host-name` when those are known. `--guest-name` overrides the userid from sysinfo.
+`--sysinfo` defaults to `/proc/sysinfo`. A missing file is skipped. `VM00` is the hypervisor closest to this Linux. `VM00 Name` becomes `zvm.exporter.guest` and `VM00 Control Program` becomes `zvm.hypervisor`. A higher VM level is an outer hypervisor, not this guest. The userid is not copied into `zvm.system.name`. Pass `--system-name` and `--host-name` when those are known. `--guest-name` overrides the userid from sysinfo.
 
 CPU counters from `/proc/stat` keep their absolute values. Their OTLP start time is `btime`, which is when those counters reset. Disk, network, hypfs, and monitor counters can reset without a reboot, so the first sample in the process is an offset and later samples export the increase. A raw value below the previous sample starts a new interval at 0. A one-shot print of those series is therefore 0. The absolute microseconds stay in the fixture file.
 

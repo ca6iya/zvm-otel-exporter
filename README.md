@@ -39,11 +39,11 @@ It has been tested against a fixture Feilong server. It has not yet been run aga
 | `zvm.ssi.name` | `zvm_ssi_name` | Feilong SSI response already collected, or an override |
 | `zvm.hypervisor` | `zvm_hypervisor` | `/proc/sysinfo` `VM00 Control Program`, for example `z/VM 7.3.0` |
 | `zvm.exporter.guest` | `zvm_exporter_guest` | Userid of the virtual machine running this Linux |
-| `zvm.vm.level` | `zvm_vm_level` | `VM00` or `VM01`, the level that supplied the guest userid |
+| `zvm.vm.level` | `zvm_vm_level` | `VM00`, the hypervisor level closest to this Linux. Higher levels are outer hypervisors |
 
 `/proc/sysinfo` is read at startup and then at most every 10 minutes (`identity.interval`, minimum 600 seconds). The read stops at 64 KiB. A non-empty `identity.*` value, or the matching `ZVM_EXPORTER_IDENTITY_*` variable, replaces the discovered value. Empty overrides are ignored.
 
-`VM00` is the hypervisor level closest to the hardware. `VM00 Name` is that level's virtual-machine userid, not the z/VM system name (`QUERY USERID` prints the system name after `AT`). `zvm.hypervisor` is always `VM00 Control Program`. The exporter guest userid is the `Name` at the highest VM level. With only `VM00`, Linux is a first-level guest and that name is the exporter guest. A `VM01` block means Linux is second-level: `zvm.exporter.guest` is `VM01 Name`, `zvm.vm.level` is `VM01`, and `zvm.hypervisor` stays the first-level control program.
+`VM00` is the hypervisor closest to this Linux. `VM00 Name` is the guest userid, not the z/VM system name (`QUERY USERID` prints the system name after `AT`). `zvm.hypervisor` is `VM00 Control Program`, and `zvm.vm.level` is `VM00`. A `VM01` block is an outer hypervisor, further from this Linux, and its name is not the guest userid.
 
 vmcp-only mode does not run `QUERY USERID`. Set `identity.system_name` and `identity.host_name` when Feilong is off. If a caller already has a cached `userid AT sysname` line, it can pass that text in. Nothing in the scrape path issues the command.
 

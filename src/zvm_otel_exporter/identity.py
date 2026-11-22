@@ -6,9 +6,9 @@
 ``identity.interval`` (default and minimum 10 minutes) and at most 64 KiB.
 Configured values always win. A missing file is ignored after one log line.
 
-VM00 in ``/proc/sysinfo`` is the hypervisor level closest to the hardware
-(STSI order), not the z/VM system name. ``VM00 Name`` is a virtual-machine
-userid. The z/VM system and host names come from Feilong, from an override,
+VM00 in ``/proc/sysinfo`` is the hypervisor closest to this Linux, not the
+z/VM system name. ``VM00 Name`` is the guest userid. Higher VM levels are
+further from this Linux. The z/VM system and host names come from Feilong, from an override,
 or stay empty. ``QUERY USERID`` (``userid AT sysname``) is applied only when
 a caller already has that text. This collector does not issue the command.
 """
@@ -115,10 +115,10 @@ def parse_sysinfo(text: str) -> dict[str, str]:
     """Parse Linux on Z ``/proc/sysinfo``.
 
     LPAR name and number, CPC type, model, sequence, and plant come from this
-    file. ``VM00 Control Program`` is ``zvm.hypervisor`` (the level closest to
-    the hardware). The exporter guest userid is the ``Name`` at the highest
-    VM level: VM00 when Linux is a first-level guest, VM01 when Linux is
-    second-level. Neither name is the z/VM system name.
+    file. ``VM00 Control Program`` is ``zvm.hypervisor``, the hypervisor
+    directly hosting this Linux. ``VM00 Name`` is the guest userid. A higher
+    VM level is an outer hypervisor, not this guest. Neither name is the
+    z/VM system name.
     """
 
     found: dict[str, str] = {}
@@ -150,14 +150,13 @@ def parse_sysinfo(text: str) -> dict[str, str]:
             levels.setdefault(int(cp_match.group(1)), {})["cp"] = _clip(value)
     if not levels:
         return found
-    outer = levels[min(levels)]
-    if outer.get("cp"):
-        found["hypervisor"] = outer["cp"]
-    inner_level = max(levels)
-    inner = levels[inner_level]
-    if inner.get("name"):
-        found["exporter_guest"] = inner["name"]
-        found["vm_level"] = f"VM{inner_level:02d}"
+    nearest_level = min(levels)
+    nearest = levels[nearest_level]
+    if nearest.get("cp"):
+        found["hypervisor"] = nearest["cp"]
+    if nearest.get("name"):
+        found["exporter_guest"] = nearest["name"]
+        found["vm_level"] = f"VM{nearest_level:02d}"
     return found
 
 

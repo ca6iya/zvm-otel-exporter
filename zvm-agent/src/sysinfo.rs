@@ -3,10 +3,9 @@
 
 //! `/proc/sysinfo` on Linux on Z.
 //!
-//! STSI lists `VM00` as the level closest to the hardware. Its control program
-//! is `zvm.hypervisor`. The Linux guest's userid is the `Name` at the highest
-//! VM level: `VM00` for a first-level guest, `VM01` when Linux is second-level.
-//! That matches the Feilong exporter. `VM00 Name` is never the z/VM system name.
+//! `VM00` is the hypervisor closest to this Linux. `VM00 Name` is the guest
+//! userid and `VM00 Control Program` is `zvm.hypervisor`. Higher VM levels are
+//! further from this Linux. `VM00 Name` is never the z/VM system name.
 
 use std::collections::BTreeMap;
 
@@ -44,12 +43,10 @@ pub fn parse_sysinfo(text: &str) -> BTreeMap<String, String> {
             }
         }
     }
-    if let Some((_, (_, cp))) = levels.iter().next() {
+    if let Some((level, (name, cp))) = levels.iter().next() {
         if let Some(cp) = cp {
             found.insert("hypervisor".to_string(), cp.clone());
         }
-    }
-    if let Some((level, (name, _))) = levels.iter().next_back() {
         if let Some(name) = name {
             found.insert("exporter_guest".to_string(), name.clone());
             found.insert("vm_level".to_string(), format!("VM{level:02}"));
@@ -115,17 +112,17 @@ VM00 Control Program: z/VM    7.3.0
     }
 
     #[test]
-    fn inner_guest_wins_and_outer_control_program_stays() {
+    fn vm00_is_this_linux_and_vm01_is_further_out() {
         let parsed = parse_sysinfo(
             "LPAR Name:            LPAR1\n\
-             VM00 Name:            OUTER\n\
+             VM00 Name:            LINUX99\n\
              VM00 Control Program: z/VM    7.3.0\n\
-             VM01 Name:            LINUX99\n\
+             VM01 Name:            OUTER\n\
              VM01 Control Program: z/VM    7.2.0\n",
         );
         assert_eq!(parsed["hypervisor"], "z/VM 7.3.0");
         assert_eq!(parsed["exporter_guest"], "LINUX99");
-        assert_eq!(parsed["vm_level"], "VM01");
+        assert_eq!(parsed["vm_level"], "VM00");
     }
 
     #[test]

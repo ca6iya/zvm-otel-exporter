@@ -170,17 +170,17 @@ def test_otel_resource_includes_identity() -> None:
     assert "host.id" not in values
 
 
-def test_vm01_is_the_inner_guest_and_vm00_stays_the_hypervisor() -> None:
+def test_vm00_is_this_linux_and_vm01_is_further_out() -> None:
     parsed = parse_sysinfo(
         "LPAR Name:            LPAR1\n"
-        "VM00 Name:            OUTER\n"
+        "VM00 Name:            LINUX99\n"
         "VM00 Control Program: z/VM    7.3.0\n"
-        "VM01 Name:            LINUX99\n"
+        "VM01 Name:            OUTER\n"
         "VM01 Control Program: z/VM    7.2.0\n"
     )
     assert parsed["hypervisor"] == "z/VM 7.3.0"
     assert parsed["exporter_guest"] == "LINUX99"
-    assert parsed["vm_level"] == "VM01"
+    assert parsed["vm_level"] == "VM00"
     assert "system_name" not in parsed
 
 
