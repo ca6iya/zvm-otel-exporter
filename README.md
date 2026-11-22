@@ -427,7 +427,7 @@ Other limits found while reading Feilong 1.6:
 
 Three backend templates sit next to that file. Each one is a template. None of them has been run against a live tenant, and none of them contains a token. Copy the endpoint from the product UI.
 
-* [Dynatrace](examples/otel-collector-dynatrace.yaml) uses `otlphttp`. Set `DT_OTLP_ENDPOINT` to the base URL, with no `/v1/metrics` suffix, and `DT_API_TOKEN` to a token with `metrics.ingest`. The metrics pipeline runs `cumulativetodelta` before `batch`. That processor is in collector-contrib, not the core collector.
+* [Dynatrace](examples/otel-collector-dynatrace.yaml) uses `otlphttp`. Set `DT_OTLP_ENDPOINT` to the base URL, with no `/v1/metrics` suffix, and `DT_API_TOKEN` to a token with `metrics.ingest`. The metrics pipeline runs `cumulativetodelta` before `batch`, with `initial_value: drop`. That processor is in collector-contrib, not the core collector. The first observation is kept and not sent, so a guest CPU total from before that point is not reported as one delta.
 * [Grafana Cloud](examples/otel-collector-grafana.yaml) uses `otlphttp`. Set `GRAFANA_OTLP_ENDPOINT` and `GRAFANA_OTLP_AUTHORIZATION` from the stack's OpenTelemetry tile. The host depends on the stack.
 * [Splunk Observability Cloud](examples/otel-collector-splunk.yaml) sends metrics with the `signalfx` exporter, which the core collector does not include. Set `SPLUNK_REALM` and `SPLUNK_ACCESS_TOKEN`. It does not send state-change logs. Splunk's gateway uses HEC for logs, and that path is not in the template.
 

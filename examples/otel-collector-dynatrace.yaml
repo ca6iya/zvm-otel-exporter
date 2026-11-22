@@ -9,8 +9,12 @@
 # DT_API_TOKEN needs metrics.ingest. It stays in the environment.
 # This exporter sends cumulative sums. Dynatrace does not ingest a cumulative
 # counter, so the metrics pipeline runs cumulativetodelta before batch.
-# That processor is in collector-contrib, not the core collector. The first
-# point has no previous value, so it produces no delta.
+# That processor is in collector-contrib, not the core collector.
+# initial_value is drop. The default, auto, can send the first cumulative
+# value as a delta, which for guest CPU time is the total since guest boot.
+# drop keeps that first observation and does not send it. The next
+# observation is the difference from it. The same collector instance has to
+# keep seeing the series, or the difference is wrong.
 # This file has not been exercised against a live Dynatrace tenant.
 
 receivers:
@@ -23,6 +27,7 @@ receivers:
 
 processors:
   cumulativetodelta:
+    initial_value: drop
   batch:
 
 exporters:
