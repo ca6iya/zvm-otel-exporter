@@ -5,13 +5,13 @@
 
 These items are proposals. Each one is to be validated on a test system before it is treated as a supported feature. Effort describes which components would change, not a calendar estimate. Privilege notes are the CP or directory authority a design would need. They are not instructions for obtaining that authority.
 
-The current release line is 0.2.x. State-change events are the work in progress for 0.3.0.
+The current release line is 0.2.x. State-change events are on main and are the 0.3.0 change. They are not in the 0.2.0 release.
 
 | Item | Status | Tracking |
 | --- | --- | --- |
 | CP system records via `vmlogrdr` | proposed | [#6](https://github.com/ca6iya/zvm-otel-exporter/issues/6) |
 | Operator console messages | proposed, design first | [#7](https://github.com/ca6iya/zvm-otel-exporter/issues/7) |
-| State-change events | in progress | [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5) |
+| State-change events | merged on main, fixture only | [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5) |
 | `QUERY OVERCOMMIT` on z/VM 7.5 | proposed | [#8](https://github.com/ca6iya/zvm-otel-exporter/issues/8) |
 | CP Monitor via `monreader` | proposed, separate component | [#9](https://github.com/ca6iya/zvm-otel-exporter/issues/9) |
 | Right-sizing report | proposed | [#10](https://github.com/ca6iya/zvm-otel-exporter/issues/10) |
@@ -47,7 +47,7 @@ Privileges: whatever the chosen route needs. PROP is an operator facility. A sec
 
 ## 3. State-change events
 
-Status: in progress in [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5).
+Status: merged on main in [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5). Not in the 0.2.0 release. The unit tests and the fixture exercise it. A test z/VM system has not, so it is not a supported feature yet.
 
 Rationale: logon, logoff, SSI relocate, SMAPI or Feilong health, and identity changes can be derived by comparing two scrapes the exporter already stored.
 
