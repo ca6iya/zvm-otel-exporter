@@ -175,7 +175,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &disk.device,
             "device",
             disk.read_bytes,
-            boot_ns,
+            0,
         ));
         points.push(counter_dir(
             LINUX_DISK_IO,
@@ -186,7 +186,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &disk.device,
             "device",
             disk.write_bytes,
-            boot_ns,
+            0,
         ));
     }
     for nic in nics {
@@ -199,7 +199,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &nic.device,
             "network.interface.name",
             nic.receive_bytes,
-            boot_ns,
+            0,
         ));
         points.push(counter_dir(
             LINUX_NETWORK_IO,
@@ -210,7 +210,7 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             &nic.device,
             "network.interface.name",
             nic.transmit_bytes,
-            boot_ns,
+            0,
         ));
     }
 
@@ -326,14 +326,22 @@ fn counter_dir(
     }
 }
 
-/// Rebases counters whose source reset is unknown.
+/// Rebases counters whose reset is not boot.
 ///
-/// The first sample in this process is the offset. Later samples export the
-/// increase since that sample, with the same start time, until the value goes
-/// backwards. `/proc` counters already carry `btime` and are left absolute.
+/// The first raw sample is the offset. Later samples export the increase since
+/// that offset. A raw value below the previous raw sample starts a new interval
+/// at 0, so the exported series does not decrease inside one start time.
+/// `/proc/stat` CPU counters carry `btime` and are left absolute.
+#[derive(Clone, Copy)]
+struct SeenCounter {
+    start: u64,
+    offset: f64,
+    previous: f64,
+}
+
 #[derive(Default)]
 pub struct UnknownStarts {
-    seen: std::collections::BTreeMap<String, (u64, f64)>,
+    seen: std::collections::BTreeMap<String, SeenCounter>,
 }
 
 impl UnknownStarts {
@@ -352,14 +360,28 @@ impl UnknownStarts {
                     .collect::<Vec<_>>()
                     .join(",")
             );
+            let raw = point.value;
             match self.seen.get(&key).copied() {
-                Some((start, offset)) if point.value + 1e-9 >= offset => {
-                    point.start_unix_nano = start;
-                    point.value -= offset;
+                Some(seen) if raw + 1e-9 >= seen.previous => {
+                    point.start_unix_nano = seen.start;
+                    point.value = raw - seen.offset;
+                    self.seen.insert(
+                        key,
+                        SeenCounter {
+                            previous: raw,
+                            ..seen
+                        },
+                    );
                 }
                 _ => {
-                    let offset = point.value;
-                    self.seen.insert(key, (now_ns, offset));
+                    self.seen.insert(
+                        key,
+                        SeenCounter {
+                            start: now_ns,
+                            offset: raw,
+                            previous: raw,
+                        },
+                    );
                     point.start_unix_nano = now_ns;
                     point.value = 0.0;
                 }
@@ -466,6 +488,12 @@ mod tests {
         let linux = point(&snapshot, LINUX_CPU_TIME, "steal");
         assert_eq!(linux.value, 0.5);
         assert_eq!(linux.start_unix_nano, 1_700_000_000_000_000_000);
+        let disk = snapshot
+            .points
+            .iter()
+            .find(|point| point.name == LINUX_DISK_IO)
+            .unwrap();
+        assert_eq!(disk.start_unix_nano, 0);
         let monitor = snapshot
             .points
             .iter()
@@ -563,6 +591,25 @@ mod tests {
         starts.rebase(&mut reset, 300);
         assert_eq!(reset.points[0].value, 0.0);
         assert_eq!(reset.points[0].start_unix_nano, 300);
+    }
+
+    #[test]
+    fn a_dip_below_the_previous_sample_starts_a_new_interval() {
+        let mut starts = UnknownStarts::default();
+        for (raw, now, exported, start) in [
+            (5.0, 100, 0.0, 100),
+            (8.0, 200, 3.0, 100),
+            (9.0, 250, 4.0, 100),
+        ] {
+            let mut sample = sample_counter(raw);
+            starts.rebase(&mut sample, now);
+            assert_eq!(sample.points[0].value, exported);
+            assert_eq!(sample.points[0].start_unix_nano, start);
+        }
+        let mut dipped = sample_counter(6.0);
+        starts.rebase(&mut dipped, 400);
+        assert_eq!(dipped.points[0].value, 0.0);
+        assert_eq!(dipped.points[0].start_unix_nano, 400);
     }
 
     fn sample_counter(value: f64) -> Snapshot {
