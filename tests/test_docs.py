@@ -151,6 +151,15 @@ def test_collector_templates_keep_tokens_in_the_environment() -> None:
         assert "Api-Token dt" not in text
         assert "Basic dGVzd" not in text
         assert name in readme
+    dynatrace = yaml.safe_load(
+        (ROOT / "examples" / "otel-collector-dynatrace.yaml").read_text(encoding="utf-8")
+    )
+    assert dynatrace["service"]["pipelines"]["metrics"]["processors"] == [
+        "cumulativetodelta",
+        "batch",
+    ]
+    assert "cumulative OTLP intake" not in readme
+    assert "does not ingest a cumulative counter" in readme
 
 
 def test_version_matches_metadata() -> None:
