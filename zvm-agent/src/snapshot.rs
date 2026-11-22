@@ -56,6 +56,8 @@ pub struct Paths {
     pub system_name: String,
     pub guest_name: String,
     pub arch: String,
+    /// When false, skip the Java, Tomcat, WebLogic, and HTTP process scan.
+    pub runtimes: bool,
 }
 
 impl Default for Paths {
@@ -69,6 +71,7 @@ impl Default for Paths {
             system_name: String::new(),
             guest_name: String::new(),
             arch: std::env::consts::ARCH.to_string(),
+            runtimes: true,
         }
     }
 }
@@ -216,27 +219,28 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
         ));
     }
 
-    for row in runtime::scan(&paths.proc_root)? {
-        let attr = vec![("runtime".to_string(), row.runtime.to_string())];
-        points.push(Point {
-            name: RUNTIME_UP,
-            description: "1 when at least one process of this runtime is running.",
-            unit: "1",
-            kind: Kind::Gauge,
-            attributes: attr.clone(),
-            value: if row.processes > 0 { 1.0 } else { 0.0 },
-            start_unix_nano: 0,
-        });
-        points.push(Point {
-            name: RUNTIME_PROCESSES,
-            description: "Processes classified as this runtime. Command lines are not labels.",
-            unit: "{process}",
-            kind: Kind::Gauge,
-            attributes: attr.clone(),
-            value: row.processes as f64,
-            start_unix_nano: 0,
-        });
-        points.push(Point {
+    if paths.runtimes {
+        for row in runtime::scan(&paths.proc_root)? {
+            let attr = vec![("runtime".to_string(), row.runtime.to_string())];
+            points.push(Point {
+                name: RUNTIME_UP,
+                description: "1 when at least one process of this runtime is running.",
+                unit: "1",
+                kind: Kind::Gauge,
+                attributes: attr.clone(),
+                value: if row.processes > 0 { 1.0 } else { 0.0 },
+                start_unix_nano: 0,
+            });
+            points.push(Point {
+                name: RUNTIME_PROCESSES,
+                description: "Processes classified as this runtime. Command lines are not labels.",
+                unit: "{process}",
+                kind: Kind::Gauge,
+                attributes: attr.clone(),
+                value: row.processes as f64,
+                start_unix_nano: 0,
+            });
+            points.push(Point {
             name: RUNTIME_CPU_TIME,
             description: "Current sum of CPU seconds for processes of this runtime. It drops when a process exits.",
             unit: "s",
@@ -245,24 +249,25 @@ pub fn collect(paths: &Paths) -> Result<Snapshot> {
             value: row.cpu_seconds,
             start_unix_nano: 0,
         });
-        points.push(Point {
-            name: RUNTIME_MEMORY,
-            description: "Sum of resident memory for this runtime. Not JVM heap.",
-            unit: "By",
-            kind: Kind::Gauge,
-            attributes: attr.clone(),
-            value: row.memory_bytes,
-            start_unix_nano: 0,
-        });
-        points.push(Point {
-            name: RUNTIME_THREADS,
-            description: "Sum of threads for this runtime.",
-            unit: "{thread}",
-            kind: Kind::Gauge,
-            attributes: attr,
-            value: row.threads as f64,
-            start_unix_nano: 0,
-        });
+            points.push(Point {
+                name: RUNTIME_MEMORY,
+                description: "Sum of resident memory for this runtime. Not JVM heap.",
+                unit: "By",
+                kind: Kind::Gauge,
+                attributes: attr.clone(),
+                value: row.memory_bytes,
+                start_unix_nano: 0,
+            });
+            points.push(Point {
+                name: RUNTIME_THREADS,
+                description: "Sum of threads for this runtime.",
+                unit: "{thread}",
+                kind: Kind::Gauge,
+                attributes: attr,
+                value: row.threads as f64,
+                start_unix_nano: 0,
+            });
+        }
     }
 
     if paths.hypfs.is_file() {
@@ -532,6 +537,7 @@ mod tests {
             system_name: String::new(),
             guest_name: String::new(),
             arch: "s390x".to_string(),
+            runtimes: true,
         })
         .unwrap();
         let _ = fs::remove_dir_all(&root);
@@ -612,6 +618,7 @@ mod tests {
             system_name: String::new(),
             guest_name: String::new(),
             arch: "s390x".to_string(),
+            runtimes: true,
         };
         let error = collect(&paths).unwrap_err();
         assert!(error.to_string().contains("regular file"));
@@ -624,6 +631,62 @@ mod tests {
         })
         .unwrap_err();
         assert!(error.to_string().contains("exceeds"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn light_mode_skips_runtime_processes() {
+        let root = std::env::temp_dir().join(format!("zvm-agent-light-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let proc_root = root.join("proc");
+        fs::create_dir_all(proc_root.join("12")).unwrap();
+        fs::create_dir_all(proc_root.join("net")).unwrap();
+        fs::write(proc_root.join("stat"), "cpu0 100 0 0 0 0 0 0 0 0 0\n").unwrap();
+        fs::write(
+            proc_root.join("meminfo"),
+            "MemTotal: 1024 kB\nMemAvailable: 512 kB\n",
+        )
+        .unwrap();
+        fs::write(proc_root.join("diskstats"), "").unwrap();
+        fs::write(proc_root.join("net/dev"), "").unwrap();
+        fs::write(proc_root.join("12/comm"), "java\n").unwrap();
+        fs::write(proc_root.join("12/cmdline"), "java\0-jar\0app.jar\0").unwrap();
+        fs::write(
+            proc_root.join("12/stat"),
+            "12 (java) S 1 1 1 0 -1 0 0 0 0 0 10 0 0 0 20 0 1 0 0 0 0\n",
+        )
+        .unwrap();
+        fs::write(
+            proc_root.join("12/status"),
+            "Name:\tjava\nVmRSS:\t4 kB\nThreads:\t1\n",
+        )
+        .unwrap();
+        let mut paths = Paths {
+            sysinfo: root.join("missing"),
+            proc_root,
+            hypfs: root.join("missing-hypfs"),
+            monitor_file: None,
+            host_name: String::new(),
+            system_name: String::new(),
+            guest_name: String::new(),
+            arch: "s390x".to_string(),
+            runtimes: false,
+        };
+        let light = collect(&paths).unwrap();
+        assert!(light
+            .points
+            .iter()
+            .any(|point| point.name == LINUX_CPU_TIME));
+        assert!(light
+            .points
+            .iter()
+            .all(|point| !point.name.starts_with("zvm.linux.runtime.")));
+        paths.runtimes = true;
+        let full = collect(&paths).unwrap();
+        assert!(full
+            .points
+            .iter()
+            .any(|point| point.name == RUNTIME_UP && point.value == 1.0));
         let _ = fs::remove_dir_all(&root);
     }
 

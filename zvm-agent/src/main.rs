@@ -67,6 +67,7 @@ fn run(args: Vec<String>) -> zvm_agent::error::Result<()> {
             "--host-name" => paths.host_name = need(&args, &mut index, arg)?,
             "--system-name" => paths.system_name = need(&args, &mut index, arg)?,
             "--guest-name" => paths.guest_name = need(&args, &mut index, arg)?,
+            "--light" => paths.runtimes = false,
             other => {
                 return Err(zvm_agent::error::Error::new(format!(
                     "unknown argument {other}. {HELP_HINT}"
@@ -134,11 +135,13 @@ zvm-agent reads this Linux guest and exports OTLP metrics.
             [--interval SECONDS] [--proc-root PATH] [--sysinfo PATH]
             [--hypfs PATH] [--monitor-file PATH]
             [--host-name NAME] [--system-name NAME] [--guest-name USERID]
+            [--light]
   zvm-agent contract
 
 --proc-root defaults to /proc. Missing /proc/sysinfo and a missing hypfs
 file are skipped. --monitor-file is a fixture of 'USERID MICROSECONDS' lines,
-not a CP Monitor stream. --monreader is rejected.
+not a CP Monitor stream. --monreader is rejected. --light skips the Java,
+Tomcat, WebLogic, and HTTP process scan and keeps the guest file metrics.
 
 zvm.linux.cpu.time is /proc/stat. zvm.linux.hypfs.guest.cpu.time is DIAG 2FC.
 zvm.monitor.guest.cpu.time is the fixture. zvm.guest.cpu.time stays in the

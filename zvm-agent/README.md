@@ -45,7 +45,7 @@ CPU counters from `/proc/stat` keep their absolute values. Their OTLP start time
 
 The monitor fixture is one `USERID MICROSECONDS` pair per line. `#` starts a comment. `--monreader` exits with an error.
 
-The same collect pass classifies processes on this guest. `runtime=java` is a JVM that is not Tomcat or WebLogic. `runtime=tomcat` matches Catalina. `runtime=weblogic` matches `weblogic.Server`. `runtime=http` matches `httpd`, `nginx`, or `apache2`. Each runtime exports whether it is up, the process count, the current CPU seconds of those processes, resident memory from `VmRSS`, and thread count. CPU seconds are a gauge and drop when a process exits. The command line is used only to classify and is not a label. A process the agent cannot read is skipped. Heap size, sessions, and HTTP request rates are not available from `/proc`.
+The same collect pass classifies processes on this guest. `runtime=java` is a JVM that is not Tomcat or WebLogic. `runtime=tomcat` matches Catalina. `runtime=weblogic` matches `weblogic.Server`. `runtime=http` matches `httpd`, `nginx`, or `apache2`. Each runtime exports whether it is up, the process count, the current CPU seconds of those processes, resident memory from `VmRSS`, and thread count. CPU seconds are a gauge and drop when a process exits. The command line is used only to classify and is not a label. A process the agent cannot read is skipped. `--light` skips that scan. CPU, memory, disk, network, sysinfo, hypfs, and the monitor fixture still export. Heap size, sessions, and HTTP request rates are not available from `/proc`.
 
 ## Tests
 
