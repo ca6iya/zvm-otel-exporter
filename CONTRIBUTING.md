@@ -23,7 +23,7 @@ Pull requests whose commits lack the trailer fail the DCO workflow. Do not use a
 
 ## Development
 
-Python 3.11 or newer is required. A z/VM system is not required.
+Python 3.11 or newer is required. A z/VM system is not required. The in-process reader in `zvm-agent/` is Rust: `cargo test --manifest-path zvm-agent/Cargo.toml`.
 
 ```bash
 python -m pip install -e ".[dev]"

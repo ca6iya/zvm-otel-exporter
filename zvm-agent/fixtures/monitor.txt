@@ -1,0 +1,3 @@
+# Cumulative virtual CPU microseconds. This is not a CP Monitor record.
+LINUX1 1500000
+LINUX2 500000

@@ -13,7 +13,7 @@ The current release line is 0.2.x. State-change events are on main and are the 0
 | Operator console messages | proposed, design first | [#7](https://github.com/ca6iya/zvm-otel-exporter/issues/7) |
 | State-change events | merged on main, fixture only | [#5](https://github.com/ca6iya/zvm-otel-exporter/pull/5) |
 | `QUERY OVERCOMMIT` on z/VM 7.5 | proposed | [#8](https://github.com/ca6iya/zvm-otel-exporter/issues/8) |
-| CP Monitor via `monreader` | proposed, separate component | [#9](https://github.com/ca6iya/zvm-otel-exporter/issues/9) |
+| CP Monitor via `monreader` | guest files started in `zvm-agent`; monreader still proposed | [#9](https://github.com/ca6iya/zvm-otel-exporter/issues/9) |
 | Right-sizing report | proposed | [#10](https://github.com/ca6iya/zvm-otel-exporter/issues/10) |
 | PyPI, RPM, and Ansible packaging | proposed | [#11](https://github.com/ca6iya/zvm-otel-exporter/issues/11) |
 | OpenTelemetry Collector reference configs | proposed | [#12](https://github.com/ca6iya/zvm-otel-exporter/issues/12) |
@@ -71,11 +71,11 @@ Privileges: class B for `QUERY OVERCOMMIT`. Class D and class G, which the curre
 
 ## 5. CP Monitor via the Linux monreader driver
 
-Status: proposed as a separate optional component. To be validated on a test system.
+Status: proposed as a separate optional component. The guest-file half is started in [`zvm-agent/`](zvm-agent/README.md). Monitor input there is a fixture. `/dev/monreader` is not opened. To be validated on a test system.
 
 Rationale: monitor records are what PerfKit and Data Pump already use. A `monreader` reader would let this project offer the same class of data to Prometheus, Grafana, and OpenTelemetry. It complements those products. It does not replace them.
 
-Effort: a separate package or entry point. The scrape exporter stays as it is. Monitor records are a stream, not a poll of three CP commands.
+Effort: a separate package or entry point. The scrape exporter stays as it is. Monitor records are a stream, not a poll of three CP commands. `zvm-agent` is that entry point for `/proc`, `/proc/sysinfo`, and hypfs `diag_2fc`. The binary monitor decoder is still the open part of this item.
 
 Risks: this is the heavy option. Domain selection, sample rate, and guest CPU have to be bounded before it can be enabled anywhere. Shipping it inside the default process would break the performance limits in the README.
 

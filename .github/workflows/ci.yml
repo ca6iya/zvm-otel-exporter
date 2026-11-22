@@ -27,6 +27,18 @@ jobs:
       - name: Test
         run: pytest
 
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.83.0
+        with:
+          components: rustfmt
+      - name: Test the in-process reader
+        run: |
+          cargo fmt --manifest-path zvm-agent/Cargo.toml --check
+          cargo test --manifest-path zvm-agent/Cargo.toml
+
   promtool:
     runs-on: ubuntu-latest
     steps:
